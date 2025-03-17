@@ -91,6 +91,7 @@ void StreamServerComponent::cleanup() {
     }
 }
 
+// read from uart
 void StreamServerComponent::read() {
     size_t len = 0;
     int available;
@@ -111,7 +112,6 @@ void StreamServerComponent::read() {
                 }
             }
         }
-
         // Fill all available contiguous space in the ring buffer.
         len = std::min<size_t>(available, std::min<size_t>(this->buf_ahead(this->buf_head_), free));
         this->stream_->read_array(&this->buf_[this->buf_index(this->buf_head_)], len);
@@ -119,6 +119,7 @@ void StreamServerComponent::read() {
     }
 }
 
+// flush data to clients
 void StreamServerComponent::flush() {
     ssize_t written;
     this->buf_tail_ = this->buf_head_;
@@ -133,7 +134,33 @@ void StreamServerComponent::flush() {
         iov[0].iov_len = std::min(this->buf_head_ - client.position, this->buf_ahead(client.position));
         iov[1].iov_base = &this->buf_[0];
         iov[1].iov_len = this->buf_head_ - (client.position + iov[0].iov_len);
-        if ((written = client.socket->writev(iov, 2)) > 0) {
+
+        written = iov[0].iov_len + iov[1].iov_len;
+        // conversion needed?
+        uint8_t tcp_frame[270];     // defined here to ensure pointer remains valid
+        ssize_t tcp_len = 0;
+        if (modbus_)
+        {
+            // Copy data from the ring buffer into a temporary buffer
+            if (written > sizeof(tcp_frame)) {
+                ESP_LOGE(TAG, "Frame to large, cannot convert Modbus RTU to TCP!");
+                return;
+            }
+            if (iov[0].iov_len > 0) {
+                memcpy(tcp_frame, iov[0].iov_base, iov[0].iov_len);
+                tcp_len += iov[0].iov_len;
+            }
+            if (iov[1].iov_len > 0) {
+                memcpy(tcp_frame + tcp_len, iov[1].iov_base, iov[1].iov_len);
+                tcp_len += iov[1].iov_len;
+            }
+            // Perform the conversion 
+            this->convert_modbus_rtu_to_tcp(tcp_frame, tcp_len);
+            iov[0].iov_base = tcp_frame;
+            iov[0].iov_len = tcp_len;
+            iov[1].iov_len = 0; // No second part after conversion
+        }
+        if ((client.socket->writev(iov, 2)) > 0) {
             client.position += written;
         } else if (written == 0 || errno == ECONNRESET) {
             ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
@@ -144,20 +171,23 @@ void StreamServerComponent::flush() {
         } else {
             ESP_LOGE(TAG, "Failed to write to client %s with error %d!", client.identifier.c_str(), errno);
         }
-
         this->buf_tail_ = std::min(this->buf_tail_, client.position);
     }
 }
 
+// write to uart after reading from clients
 void StreamServerComponent::write() {
-    uint8_t buf[128];
+    uint8_t buf[260]; // Increase buffer size to 260 bytes
     ssize_t read;
     for (Client &client : this->clients_) {
         if (client.disconnected)
             continue;
 
-        while ((read = client.socket->read(&buf, sizeof(buf))) > 0)
+        while ((read = client.socket->read(&buf, sizeof(buf))) > 0) {
+            if (this->modbus_) {
+                this->convert_modbus_tcp_to_rtu(buf, read);
             this->stream_->write_array(buf, read);
+        }
 
         if (read == 0 || errno == ECONNRESET) {
             ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
@@ -172,3 +202,54 @@ void StreamServerComponent::write() {
 
 StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier, size_t position)
     : socket(std::move(socket)), identifier{identifier}, position{position} {}
+
+void StreamServerComponent::convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+    // Modbus TCP to RTU conversion logic
+    // Example: Strip the MBAP header (first 7 bytes) and add CRC
+    if (len < 7) {
+        len = 0;
+        return;
+    }
+    memmove(frame, frame +6, len -6); // Shift TCP frame to remove MBAP header
+    len -= 6;
+    uint16_t crc = calculate_crc(frame, len);
+    frame[len++] = crc & 0xFF;
+    frame[len++] = (crc >> 8) & 0xFF;
+}
+
+void StreamServerComponent::convert_modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
+{
+    // Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
+    if (len < 4) {
+        len = 0;
+        return;
+    }
+    uint16_t transaction_id = 0; // Set appropriate transaction ID
+    uint16_t protocol_id = 0;
+    uint16_t length = len -2; // Length without CRC
+    memmove(frame + 6, frame, len - 2); // Shift RTU frame to make space for MBAP header,
+    frame[0] = (transaction_id >> 8) & 0xFF;
+    frame[1] = transaction_id & 0xFF;
+    frame[2] = (protocol_id >> 8) & 0xFF;
+    frame[3] = protocol_id & 0xFF;
+    frame[4] = (length >> 8) & 0xFF;
+    frame[5] = length & 0xFF;
+    len = 6 + len - 2;             //  Note: buffer needs to be 4 bytes longer as len
+}
+
+uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t &len) {
+    // Implement CRC calculation for Modbus RTU
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 0x0001) {
+                crc >>= 1;
+                crc ^= 0xA001;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return crc;
+}

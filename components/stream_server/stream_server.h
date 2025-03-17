@@ -37,6 +37,7 @@ public:
     float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
 
     void set_port(uint16_t port) { this->port_ = port; }
+    void set_modbus(bool modbus) { this->modbus_ = modbus; }
 
 protected:
     void publish_sensor();
@@ -46,6 +47,10 @@ protected:
     void read();
     void flush();
     void write();
+
+    void convert_modbus_tcp_to_rtu(const uint8_t *tcp_frame, size_t tcp_len, uint8_t *rtu_frame, size_t &rtu_len);
+    void convert_modbus_rtu_to_tcp(const uint8_t *rtu_frame, size_t rtu_len, uint8_t *tcp_frame, size_t &tcp_len);
+    uint16_t calculate_crc(const uint8_t *data, size_t len);
 
     size_t buf_index(size_t pos) { return pos & (this->buf_size_ - 1); }
     /// Return the number of consecutive elements that are ahead of @p pos in memory.
@@ -63,6 +68,7 @@ protected:
     esphome::uart::UARTComponent *stream_{nullptr};
     uint16_t port_;
     size_t buf_size_;
+    bool modbus_{true};
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;
