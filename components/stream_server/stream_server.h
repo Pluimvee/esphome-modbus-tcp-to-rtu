@@ -48,8 +48,8 @@ protected:
     void flush();
     void write();
 
-    void convert_modbus_tcp_to_rtu(const uint8_t *tcp_frame, size_t tcp_len, uint8_t *rtu_frame, size_t &rtu_len);
-    void convert_modbus_rtu_to_tcp(const uint8_t *rtu_frame, size_t rtu_len, uint8_t *tcp_frame, size_t &tcp_len);
+    void convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len);
+    void convert_modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len);
     uint16_t calculate_crc(const uint8_t *data, size_t len);
 
     size_t buf_index(size_t pos) { return pos & (this->buf_size_ - 1); }
