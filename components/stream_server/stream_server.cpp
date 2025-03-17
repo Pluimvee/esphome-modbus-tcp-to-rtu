@@ -204,6 +204,7 @@ StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> s
     : socket(std::move(socket)), identifier{identifier}, position{position} {}
 
 void StreamServerComponent::convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+{
     // Modbus TCP to RTU conversion logic
     // Example: Strip the MBAP header (first 7 bytes) and add CRC
     if (len < 7) {
