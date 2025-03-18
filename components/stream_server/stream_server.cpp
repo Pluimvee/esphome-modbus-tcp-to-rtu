@@ -148,7 +148,7 @@ void StreamServerComponent::exchange()
         {
             // Enforce a minimum wait time before reading from the UART
             if (uart_start_time > 0 && (esphome::millis() - uart_start_time) < 10) { // Wait at least 10ms
-                sleep(10);
+                return;
             }
             uart_read_len = this->stream_->available();
 
