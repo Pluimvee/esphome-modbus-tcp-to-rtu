@@ -121,7 +121,7 @@ void StreamServerComponent::exchange()
 
                 // Mark the client as waiting for a UART response
                 current_client = &client;
-                uart_start_time = millis(); // Start the timeout timer
+                uart_start_time = esphome::millis(); // Start the timeout timer
                 continue; // Move to the next iteration to wait for the UART response
             } else if (socket_read_len == 0 || errno == ECONNRESET) {
                 // Handle socket disconnection
@@ -151,7 +151,7 @@ void StreamServerComponent::exchange()
                 // Clear the current client and reset the timer
                 current_client = nullptr;
                 uart_start_time = 0;
-            } else if (millis() - uart_start_time > 1000) { // 1-second timeout
+            } else if (esphome::millis() - uart_start_time > 1000) { // 1-second timeout
                 // Handle UART timeout
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
                 current_client = nullptr;
