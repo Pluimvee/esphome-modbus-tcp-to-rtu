@@ -240,7 +240,7 @@ void StreamServerComponent::convert_modbus_rtu_to_tcp(uint8_t *frame, ssize_t &l
     len = 6 + len - 2;             //  Note: buffer needs to be 4 bytes longer as len
 }
 
-uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t &len) {
+uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t len) {
     // Implement CRC calculation for Modbus RTU
     uint16_t crc = 0xFFFF;
     for (size_t i = 0; i < len; i++) {
