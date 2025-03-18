@@ -176,15 +176,17 @@ void StreamServerComponent::flush() {
 }
 
 // write to uart after reading from clients
-void StreamServerComponent::write() {
+void StreamServerComponent::write() 
+{
     uint8_t buf[260]; // Increase buffer size to 260 bytes
     ssize_t read;
-    for (Client &client : this->clients_) {
+    for (Client &client : this->clients_) 
+    {
         if (client.disconnected)
             continue;
 
         while ((read = client.socket->read(&buf, sizeof(buf))) > 0) {
-            if (this->modbus_) {
+            if (this->modbus_)
                 this->convert_modbus_tcp_to_rtu(buf, read);
             this->stream_->write_array(buf, read);
         }
