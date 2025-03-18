@@ -150,7 +150,7 @@ void StreamServerComponent::exchange()
             uart_read_len = this->stream_->available();
 
             if (uart_read_len > 5) {
-                uart_read_len = this->stream_->read_array(uart_buf, std::min((ssize_t) uart_read_len, sizeof(uart_buf)));
+                uart_read_len = this->stream_->read_array(uart_buf, std::min(uart_read_len, (ssize_t) sizeof(uart_buf)));
 
                 // Step 4: Send the UART response back to the socket
                 if (this->modbus_) {
