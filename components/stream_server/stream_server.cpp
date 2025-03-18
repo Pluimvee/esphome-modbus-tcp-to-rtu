@@ -146,7 +146,7 @@ void StreamServerComponent::exchange()
         if (current_client_ == &client) 
         {
             // Enforce a minimum wait time before reading from the UART
-            delay(100);
+            esphome::delay(100);
             uart_read_len = this->stream_->available();
 
             if (uart_read_len > 5) {
