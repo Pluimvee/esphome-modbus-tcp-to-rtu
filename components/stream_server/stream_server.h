@@ -64,6 +64,8 @@ protected:
     uint16_t port_;
     size_t buf_size_;
     bool modbus_{true};
+    uint32_t uart_start_time_{0}; // Track the start time for UART response
+    Client *current_client_{nullptr}; // Track the client currently using the UART
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;

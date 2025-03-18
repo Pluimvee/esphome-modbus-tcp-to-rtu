@@ -102,15 +102,12 @@ void StreamServerComponent::exchange()
     ssize_t socket_read_len;
     ssize_t uart_read_len;
 
-    static uint32_t uart_start_time = 0; // Track the start time for UART response
-    static Client *current_client = nullptr; // Track the client currently using the UART
-
     for (Client &client : this->clients_) {
         if (client.disconnected)
             continue;
 
         // Step 1: Read data from the socket
-        if (current_client == nullptr) { // Only read if no client is waiting for a response
+        if (current_client_ == nullptr) { // Only read if no client is waiting for a response
             socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
             if (socket_read_len > 0) {
                 // Step 2: Send the data to the UART
@@ -120,8 +117,8 @@ void StreamServerComponent::exchange()
                 this->stream_->write_array(socket_buf, socket_read_len);
 
                 // Mark the client as waiting for a UART response
-                current_client = &client;
-                uart_start_time = esphome::millis(); // Start the timeout timer
+                current_client_ = &client;
+                uart_start_time_ = esphome::millis(); // Start the timeout timer
             
                 return; // Move to the next iteration to wait for the UART response
             } 
@@ -144,10 +141,10 @@ void StreamServerComponent::exchange()
         }
 
         // Step 2: Wait for UART response (non-blocking)
-        if (current_client == &client) 
+        if (current_client_ == &client) 
         {
             // Enforce a minimum wait time before reading from the UART
-            if (uart_start_time > 0 && (esphome::millis() - uart_start_time) < 10) { // Wait at least 10ms
+            if (uart_start_time_ > 0 && (esphome::millis() - uart_start_time_) < 10) { // Wait at least 10ms
                 return;
             }
             uart_read_len = this->stream_->available();
@@ -162,13 +159,13 @@ void StreamServerComponent::exchange()
                 client.socket->write(uart_buf, uart_read_len);
 
                 // Clear the current client and reset the timer
-                current_client = nullptr;
-                uart_start_time = 0;
-            } else if (esphome::millis() - uart_start_time > 1000) { // 1-second timeout
+                current_client_ = nullptr;
+                uart_start_time_ = 0;
+            } else if (esphome::millis() - uart_start_time > 2000) { // 1-second timeout
                 // Handle UART timeout
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-                current_client = nullptr;
-                uart_start_time = 0;
+                current_client_ = nullptr;
+                uart_start_time_ = 0;
                 // flush all remaining bytes in UART queue and hope to recover
                 this->stream_->flush();
             }
