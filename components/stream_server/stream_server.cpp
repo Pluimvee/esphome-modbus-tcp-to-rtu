@@ -135,6 +135,7 @@ void StreamServerComponent::exchange()
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
                 // No data available on the socket, continue to the next client
                 return;
+                
             } else {
                 ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
                 client.disconnected = true;
@@ -146,12 +147,12 @@ void StreamServerComponent::exchange()
         if (current_client == &client) 
         {
             // Enforce a minimum wait time before reading from the UART
-            if (esphome::millis() - uart_start_time < 10) { // Wait at least 10ms
-                return; // Skip this iteration and wait longer
+            if (uart_start_time > 0 && (esphome::millis() - uart_start_time) < 10) { // Wait at least 10ms
+                Sleep(10);
             }
             uart_read_len = this->stream_->available();
 
-            if (uart_read_len > 7) {
+            if (uart_read_len > 5) {
                 uart_read_len = this->stream_->read_array(uart_buf, uart_read_len);
 
                 // Step 4: Send the UART response back to the socket
