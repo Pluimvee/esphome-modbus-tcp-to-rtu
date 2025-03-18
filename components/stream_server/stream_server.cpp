@@ -17,7 +17,7 @@ void StreamServerComponent::setup() {
 
     struct sockaddr_storage bind_addr;
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2023, 4, 0)
-    socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
+    socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), 502); //this->port_);
 #else
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), htons(this->port_));
 #endif
@@ -122,6 +122,8 @@ void StreamServerComponent::exchange()
                 current_client_ = &client;
                 client.last_uart_time = esphome::millis(); // Start the timeout timer
             
+                // Enforce a minimum wait time before reading from the UART
+                esphome::delay(100);
                 return; // Move to the next iteration to wait for the UART response
             } 
             if (socket_read_len == 0 || errno == ECONNRESET) {
@@ -145,12 +147,10 @@ void StreamServerComponent::exchange()
         // Step 2: Wait for UART response (non-blocking)
         if (current_client_ == &client) 
         {
-            // Enforce a minimum wait time before reading from the UART
-            esphome::delay(100);
             uart_read_len = this->stream_->available();
 
             if (uart_read_len > 5) {
-                uart_read_len = this->stream_->read_array(uart_buf, uart_read_len);
+                uart_read_len = this->stream_->read_array(uart_buf, std::min(uart_read_len, sizeof(uart_buf)));
 
                 // Step 4: Send the UART response back to the socket
                 if (this->modbus_) {

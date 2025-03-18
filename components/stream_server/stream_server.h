@@ -61,7 +61,7 @@ protected:
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
-    uint16_t port_;
+    uint16_t port_{502};
     size_t buf_size_;
     bool modbus_{true};
     Client *current_client_{nullptr}; // Track the client currently using the UART
