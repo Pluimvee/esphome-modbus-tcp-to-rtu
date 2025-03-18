@@ -15,9 +15,6 @@ using namespace esphome;
 void StreamServerComponent::setup() {
     ESP_LOGCONFIG(TAG, "Setting up stream server...");
 
-    // The make_unique() wrapper doesn't like arrays, so initialize the unique_ptr directly.
-    this->buf_ = std::unique_ptr<uint8_t[]>{new uint8_t[this->buf_size_]};
-
     struct sockaddr_storage bind_addr;
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2023, 4, 0)
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
@@ -98,7 +95,7 @@ void StreamServerComponent::cleanup()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::process_sockets() 
+void StreamServerComponent::exchange() 
 {
     uint8_t socket_buf[260]; // Buffer for reading socket data
     uint8_t uart_buf[260];   // Buffer for UART response
@@ -118,7 +115,7 @@ void StreamServerComponent::process_sockets()
             if (socket_read_len > 0) {
                 // Step 2: Send the data to the UART
                 if (this->modbus_) {
-                    this->convert_modbus_tcp_to_rtu(socket_buf, socket_read_len);
+                    this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
                 }
                 this->stream_->write_array(socket_buf, socket_read_len);
 
@@ -147,7 +144,7 @@ void StreamServerComponent::process_sockets()
 
                 // Step 4: Send the UART response back to the socket
                 if (this->modbus_) {
-                    this->convert_modbus_rtu_to_tcp(uart_buf, uart_read_len);
+                    this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
                 }
                 client.socket->write(uart_buf, uart_read_len);
 
@@ -171,7 +168,7 @@ StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> s
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //  Some helpers to convert Modbus TCP to RTU and vice versa
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+void StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
 {
     // Modbus TCP to RTU conversion logic
     // Example: Strip the MBAP header (first 7 bytes) and add CRC
@@ -186,7 +183,7 @@ void StreamServerComponent::convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &l
     frame[len++] = (crc >> 8) & 0xFF;
 }
 
-void StreamServerComponent::convert_modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
+void StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
 {
     // Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
     if (len < 4) {
