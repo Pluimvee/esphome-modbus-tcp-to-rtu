@@ -161,7 +161,7 @@ void StreamServerComponent::exchange()
                 // Clear the current client and reset the timer
                 current_client_ = nullptr;
                 uart_start_time_ = 0;
-            } else if (esphome::millis() - uart_start_time > 2000) { // 1-second timeout
+            } else if (esphome::millis() - uart_start_time_ > 2000) { // 2-second timeout
                 // Handle UART timeout
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
                 current_client_ = nullptr;
