@@ -63,7 +63,9 @@ void StreamServerComponent::publish_sensor() {
 #endif
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Accepting new connections
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::accept() 
 {
     struct sockaddr_storage client_addr;
@@ -118,7 +120,7 @@ void StreamServerComponent::exchange()
 
                 // Mark the client as waiting for a UART response
                 current_client_ = &client;
-                uart_start_time_ = esphome::millis(); // Start the timeout timer
+                client.last_uart_time = esphome::millis(); // Start the timeout timer
             
                 return; // Move to the next iteration to wait for the UART response
             } 
@@ -144,9 +146,7 @@ void StreamServerComponent::exchange()
         if (current_client_ == &client) 
         {
             // Enforce a minimum wait time before reading from the UART
-            if (uart_start_time_ > 0 && (esphome::millis() - uart_start_time_) < 10) { // Wait at least 10ms
-                return;
-            }
+            delay(100);
             uart_read_len = this->stream_->available();
 
             if (uart_read_len > 5) {
@@ -160,15 +160,22 @@ void StreamServerComponent::exchange()
 
                 // Clear the current client and reset the timer
                 current_client_ = nullptr;
-                uart_start_time_ = 0;
-            } else if (esphome::millis() - uart_start_time_ > 5000) { // 5-second ModBus timeout
+            } else if (esphome::millis() - client.last_uart_time > 5000) { // 5-second ModBus timeout
                 // Handle UART timeout
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
                 current_client_ = nullptr;
-                uart_start_time_ = 0;
                 // flush all remaining bytes in UART queue and hope to recover
                 this->stream_->flush();
             }
+        }
+        else {
+            // cleanup clients which have no communicaiton for 60 seconds
+            if (esphome::millis() - client.last_uart_time > 60000) {
+                ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
+                client.socket->shutdown(SHUT_RDWR);
+                client.disconnected = true;
+            }
+            return;
         }
     }
 }

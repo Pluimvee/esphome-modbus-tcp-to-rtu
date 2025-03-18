@@ -57,14 +57,13 @@ protected:
         std::unique_ptr<esphome::socket::Socket> socket{nullptr};
         std::string identifier{};
         bool disconnected{false};
-        bool waiting_for_uart{false};
+        uint32_t last_uart_time{0};    // Track the start time for UART response
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
     uint16_t port_;
     size_t buf_size_;
     bool modbus_{true};
-    uint32_t uart_start_time_{0}; // Track the start time for UART response
     Client *current_client_{nullptr}; // Track the client currently using the UART
 
 #ifdef USE_BINARY_SENSOR
