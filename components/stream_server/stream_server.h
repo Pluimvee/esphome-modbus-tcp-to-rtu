@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <mutex>
 
 class StreamServerComponent : public esphome::Component {
 public:
@@ -42,27 +43,21 @@ public:
 protected:
     void publish_sensor();
 
-    void accept();
-    void cleanup();
-    void read();
-    void flush();
-    void write();
+    void accept();      // accept new connections
+    void exchange();    // exchange data between clients and uart
+    void cleanup();     // cleanup disconnected clients 
 
-    void convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len);
-    void convert_modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len);
+    void modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len);
+    void modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len);
     uint16_t calculate_crc(const uint8_t *data, size_t len);
 
-    size_t buf_index(size_t pos) { return pos & (this->buf_size_ - 1); }
-    /// Return the number of consecutive elements that are ahead of @p pos in memory.
-    size_t buf_ahead(size_t pos) { return (pos | (this->buf_size_ - 1)) - pos + 1; }
-
     struct Client {
-        Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier, size_t position);
+        Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier);
 
         std::unique_ptr<esphome::socket::Socket> socket{nullptr};
         std::string identifier{};
         bool disconnected{false};
-        size_t position{0};
+        bool waiting_for_uart{false};
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
@@ -76,10 +71,6 @@ protected:
 #ifdef USE_SENSOR
     esphome::sensor::Sensor *connection_count_sensor_;
 #endif
-
-    std::unique_ptr<uint8_t[]> buf_{};
-    size_t buf_head_{0};
-    size_t buf_tail_{0};
 
     std::unique_ptr<esphome::socket::Socket> socket_{};
     std::vector<Client> clients_{};

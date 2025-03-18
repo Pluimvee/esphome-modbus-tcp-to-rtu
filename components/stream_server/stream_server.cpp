@@ -35,9 +35,7 @@ void StreamServerComponent::setup() {
 
 void StreamServerComponent::loop() {
     this->accept();
-    this->read();
-    this->flush();
-    this->write();
+    this->exchange();
     this->cleanup();
 }
 
@@ -68,11 +66,9 @@ void StreamServerComponent::publish_sensor() {
 #endif
 }
 
-void StreamServerComponent::accept() {
-    if (!this->clients_.empty()) {
-        // If there is already an active client, do not accept new connections
-        return;
-    }
+// Accepting new connections
+void StreamServerComponent::accept() 
+{
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
     std::unique_ptr<socket::Socket> socket = this->socket_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
@@ -81,12 +77,16 @@ void StreamServerComponent::accept() {
 
     socket->setblocking(false);
     std::string identifier = socket->getpeername();
-    this->clients_.emplace_back(std::move(socket), identifier, this->buf_head_);
+    this->clients_.emplace_back(std::move(socket), identifier);
     ESP_LOGD(TAG, "New client connected from %s", identifier.c_str());
     this->publish_sensor();
 }
 
-void StreamServerComponent::cleanup() {
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Cleanup closed connections
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void StreamServerComponent::cleanup() 
+{
     auto discriminator = [](const Client &client) { return !client.disconnected; };
     auto last_client = std::partition(this->clients_.begin(), this->clients_.end(), discriminator);
     if (last_client != this->clients_.end()) {
@@ -95,120 +95,82 @@ void StreamServerComponent::cleanup() {
     }
 }
 
-// read from uart
-void StreamServerComponent::read() {
-    size_t len = 0;
-    int available;
-    while ((available = this->stream_->available()) > 0) {
-        size_t free = this->buf_size_ - (this->buf_head_ - this->buf_tail_);
-        if (free == 0) {
-            // Only overwrite if nothing has been added yet, otherwise give flush() a chance to empty the buffer first.
-            if (len > 0)
-                return;
-
-            ESP_LOGE(TAG, "Incoming bytes available, but outgoing buffer is full: stream will be corrupted!");
-            free = std::min<size_t>(available, this->buf_size_);
-            this->buf_tail_ += free;
-            for (Client &client : this->clients_) {
-                if (client.position < this->buf_tail_) {
-                    ESP_LOGW(TAG, "Dropped %u pending bytes for client %s", this->buf_tail_ - client.position, client.identifier.c_str());
-                    client.position = this->buf_tail_;
-                }
-            }
-        }
-        // Fill all available contiguous space in the ring buffer.
-        len = std::min<size_t>(available, std::min<size_t>(this->buf_ahead(this->buf_head_), free));
-        this->stream_->read_array(&this->buf_[this->buf_index(this->buf_head_)], len);
-        this->buf_head_ += len;
-    }
-}
-
-// flush data to clients
-void StreamServerComponent::flush() {
-    ssize_t written;
-    this->buf_tail_ = this->buf_head_;
-    for (Client &client : this->clients_) {
-        if (client.disconnected || client.position == this->buf_head_)
-            continue;
-
-        // Split the write into two parts: from the current position to the end of the ring buffer, and from the start
-        // of the ring buffer until the head. The second part might be zero if no wraparound is necessary.
-        struct iovec iov[2];
-        iov[0].iov_base = &this->buf_[this->buf_index(client.position)];
-        iov[0].iov_len = std::min(this->buf_head_ - client.position, this->buf_ahead(client.position));
-        iov[1].iov_base = &this->buf_[0];
-        iov[1].iov_len = this->buf_head_ - (client.position + iov[0].iov_len);
-
-        written = iov[0].iov_len + iov[1].iov_len;
-        // conversion needed?
-        uint8_t tcp_frame[270];     // defined here to ensure pointer remains valid
-        ssize_t tcp_len = 0;
-        if (modbus_)
-        {
-            // Copy data from the ring buffer into a temporary buffer
-            if (written > sizeof(tcp_frame)) {
-                ESP_LOGE(TAG, "Frame to large, cannot convert Modbus RTU to TCP!");
-                return;
-            }
-            if (iov[0].iov_len > 0) {
-                memcpy(tcp_frame, iov[0].iov_base, iov[0].iov_len);
-                tcp_len += iov[0].iov_len;
-            }
-            if (iov[1].iov_len > 0) {
-                memcpy(tcp_frame + tcp_len, iov[1].iov_base, iov[1].iov_len);
-                tcp_len += iov[1].iov_len;
-            }
-            // Perform the conversion 
-            this->convert_modbus_rtu_to_tcp(tcp_frame, tcp_len);
-            iov[0].iov_base = tcp_frame;
-            iov[0].iov_len = tcp_len;
-            iov[1].iov_len = 0; // No second part after conversion
-        }
-        if ((client.socket->writev(iov, 2)) > 0) {
-            client.position += written;
-        } else if (written == 0 || errno == ECONNRESET) {
-            ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
-            client.disconnected = true;
-            continue;  // don't consider this client when calculating the tail position
-        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            // Expected if the (TCP) transmit buffer is full, nothing to do.
-        } else {
-            ESP_LOGE(TAG, "Failed to write to client %s with error %d!", client.identifier.c_str(), errno);
-        }
-        this->buf_tail_ = std::min(this->buf_tail_, client.position);
-    }
-}
-
-// write to uart after reading from clients
-void StreamServerComponent::write() 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Exchange messages from socket to UART and back
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void StreamServerComponent::process_sockets() 
 {
-    uint8_t buf[260]; // Increase buffer size to 260 bytes
-    ssize_t read;
-    for (Client &client : this->clients_) 
-    {
+    uint8_t socket_buf[260]; // Buffer for reading socket data
+    uint8_t uart_buf[260];   // Buffer for UART response
+    ssize_t socket_read_len;
+    ssize_t uart_read_len;
+
+    static uint32_t uart_start_time = 0; // Track the start time for UART response
+    static Client *current_client = nullptr; // Track the client currently using the UART
+
+    for (Client &client : this->clients_) {
         if (client.disconnected)
             continue;
 
-        while ((read = client.socket->read(&buf, sizeof(buf))) > 0) {
-            if (this->modbus_)
-                this->convert_modbus_tcp_to_rtu(buf, read);
-            this->stream_->write_array(buf, read);
+        // Step 1: Read data from the socket
+        if (current_client == nullptr) { // Only read if no client is waiting for a response
+            socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
+            if (socket_read_len > 0) {
+                // Step 2: Send the data to the UART
+                if (this->modbus_) {
+                    this->convert_modbus_tcp_to_rtu(socket_buf, socket_read_len);
+                }
+                this->stream_->write_array(socket_buf, socket_read_len);
+
+                // Mark the client as waiting for a UART response
+                current_client = &client;
+                uart_start_time = millis(); // Start the timeout timer
+                continue; // Move to the next iteration to wait for the UART response
+            } else if (socket_read_len == 0 || errno == ECONNRESET) {
+                // Handle socket disconnection
+                ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
+                client.disconnected = true;
+            } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                // No data available on the socket, continue to the next client
+                continue;
+            } else {
+                ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
+                client.disconnected = true;
+            }
         }
 
-        if (read == 0 || errno == ECONNRESET) {
-            ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
-            client.disconnected = true;
-        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            // Expected if the (TCP) receive buffer is empty, nothing to do.
-        } else {
-            ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
+        // Step 2: Wait for UART response (non-blocking)
+        if (current_client == &client) {
+            uart_read_len = this->stream_->available();
+            if (uart_read_len > 0) {
+                uart_read_len = this->stream_->read_array(uart_buf, sizeof(uart_buf));
+
+                // Step 4: Send the UART response back to the socket
+                if (this->modbus_) {
+                    this->convert_modbus_rtu_to_tcp(uart_buf, uart_read_len);
+                }
+                client.socket->write(uart_buf, uart_read_len);
+
+                // Clear the current client and reset the timer
+                current_client = nullptr;
+                uart_start_time = 0;
+            } else if (millis() - uart_start_time > 1000) { // 1-second timeout
+                // Handle UART timeout
+                ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
+                current_client = nullptr;
+                uart_start_time = 0;
+            }
         }
     }
 }
 
-StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier, size_t position)
-    : socket(std::move(socket)), identifier{identifier}, position{position} {}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier)
+    : socket(std::move(socket)), identifier{identifier} {}
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//  Some helpers to convert Modbus TCP to RTU and vice versa
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::convert_modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
 {
     // Modbus TCP to RTU conversion logic
