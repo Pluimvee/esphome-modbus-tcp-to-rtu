@@ -143,9 +143,15 @@ void StreamServerComponent::exchange()
         }
 
         // Step 2: Wait for UART response (non-blocking)
-        if (current_client == &client) {
+        if (current_client == &client) 
+        {
+            // Enforce a minimum wait time before reading from the UART
+            if (esphome::millis() - uart_start_time < 10) { // Wait at least 10ms
+                return; // Skip this iteration and wait longer
+            }
             uart_read_len = this->stream_->available();
-            if (uart_read_len > 0) {
+
+            if (uart_read_len > 7) {
                 uart_read_len = this->stream_->read_array(uart_buf, uart_read_len);
 
                 // Step 4: Send the UART response back to the socket
@@ -162,7 +168,11 @@ void StreamServerComponent::exchange()
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
                 current_client = nullptr;
                 uart_start_time = 0;
-            }
+                // flush all remaining bytes in UART queue and hope to recover
+                uart_read_len = this->stream_->available();
+                if (uart_read_len > 0) {
+                    this->stream_->read_array(uart_buf, uart_read_len);
+                }
         }
     }
 }
