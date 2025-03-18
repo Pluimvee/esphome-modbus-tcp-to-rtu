@@ -69,6 +69,10 @@ void StreamServerComponent::publish_sensor() {
 }
 
 void StreamServerComponent::accept() {
+    if (!this->clients_.empty()) {
+        // If there is already an active client, do not accept new connections
+        return;
+    }
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
     std::unique_ptr<socket::Socket> socket = this->socket_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
