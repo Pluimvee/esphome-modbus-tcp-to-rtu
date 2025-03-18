@@ -122,25 +122,31 @@ void StreamServerComponent::exchange()
                 // Mark the client as waiting for a UART response
                 current_client = &client;
                 uart_start_time = esphome::millis(); // Start the timeout timer
-                continue; // Move to the next iteration to wait for the UART response
-            } else if (socket_read_len == 0 || errno == ECONNRESET) {
+            
+                return; // Move to the next iteration to wait for the UART response
+            } 
+            if (socket_read_len == 0 || errno == ECONNRESET) {
                 // Handle socket disconnection
                 ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
                 client.disconnected = true;
-            } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+
+                return;
+            } 
+            if (errno == EWOULDBLOCK || errno == EAGAIN) {
                 // No data available on the socket, continue to the next client
-                continue;
+                return;
             } else {
                 ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
                 client.disconnected = true;
             }
+            return;
         }
 
         // Step 2: Wait for UART response (non-blocking)
         if (current_client == &client) {
             uart_read_len = this->stream_->available();
             if (uart_read_len > 0) {
-                uart_read_len = this->stream_->read_array(uart_buf, sizeof(uart_buf));
+                uart_read_len = this->stream_->read_array(uart_buf, uart_read_len);
 
                 // Step 4: Send the UART response back to the socket
                 if (this->modbus_) {
