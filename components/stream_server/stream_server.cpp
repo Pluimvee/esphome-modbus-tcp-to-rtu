@@ -169,10 +169,9 @@ void StreamServerComponent::exchange()
                 current_client = nullptr;
                 uart_start_time = 0;
                 // flush all remaining bytes in UART queue and hope to recover
-                uart_read_len = this->stream_->available();
-                if (uart_read_len > 0) {
-                    this->stream_->read_array(uart_buf, uart_read_len);
-                }
+                while (this->stream_->available() > 0)
+                    this->stream_->get();
+            }
         }
     }
 }
