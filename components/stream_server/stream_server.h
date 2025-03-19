@@ -14,7 +14,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <mutex>
 
 class StreamServerComponent : public esphome::Component {
 public:
