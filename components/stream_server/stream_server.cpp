@@ -171,9 +171,9 @@ void StreamServerComponent::exchange()
         else {
             // cleanup clients which have no communication for 60 seconds
             if (esphome::millis() - client.last_uart_time > 60000) {
-                ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
+//                ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
 //                client.socket->close();
-                client.disconnected = true;
+//                client.disconnected = true;
             }
             return;
         }
