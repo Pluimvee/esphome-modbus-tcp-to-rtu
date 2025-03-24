@@ -57,13 +57,14 @@ protected:
         std::string identifier{};
         bool disconnected{false};
         uint32_t last_uart_time{0};    // Track the start time for UART response
+        uart_user_{false};             // Track if UART is in use by this client
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
     uint16_t port_{502};
     size_t buf_size_;
     bool modbus_{true};
-    Client *current_client_{nullptr}; // Track the client currently using the UART
+    bool uart_in_use_{false};
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;

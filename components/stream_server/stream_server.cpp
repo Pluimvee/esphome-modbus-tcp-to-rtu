@@ -105,7 +105,7 @@ void StreamServerComponent::exchange()
             continue;
 
         // Step 1: Read data from the socket
-        if (current_client_ == nullptr) { // Only read if no client is waiting for a response
+        if (!uart_in_use_) { // Only read if no client is waiting for a response
             socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
             if (socket_read_len > 0) {
                 // Step 2: Send the data to the UART
@@ -115,8 +115,9 @@ void StreamServerComponent::exchange()
                 this->stream_->write_array(socket_buf, socket_read_len);
 
                 // Mark the client as waiting for a UART response
-                current_client_ = &client;
+                uart_in_use_ = true;
                 client.last_uart_time = esphome::millis(); // Start the timeout timer
+                client.uart_user_ = true;
             
                 return; // Move to the next iteration to wait for the UART response
             } 
@@ -139,7 +140,7 @@ void StreamServerComponent::exchange()
         }
 
         // Step 2: Wait for UART response (non-blocking)
-        if (current_client_ == &client) 
+        if (uart_in_use_ && client.uart_user_) 
         {
             uart_read_len = this->stream_->available();
 
@@ -154,13 +155,15 @@ void StreamServerComponent::exchange()
                 client.socket->write(uart_buf, uart_read_len);
 
                 // Clear the current client and reset the timer
-                current_client_ = nullptr;
+                client.uart_user_ = false;
+                uart_in_use_ = false;
                 client.last_uart_time = esphome::millis(); // Reset the timeout timer
             } 
             else if (esphome::millis() - client.last_uart_time > 5000) { // 5-second ModBus timeout
                 // Handle UART timeout
                 ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-                current_client_ = nullptr;
+                client.uart_user_ = false;
+                uart_in_use_ = false;
                 // flush all remaining bytes in UART queue and hope to recover
                 this->stream_->flush();
             }
