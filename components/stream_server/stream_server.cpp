@@ -120,7 +120,9 @@ void StreamServerComponent::exchange()
             if (this->modbus_) {
                 this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
             }
-            client.socket->write(uart_buf, uart_read_len);
+            int written = client.socket->write(uart_buf, uart_read_len);
+            ESP_LOG_BUFFER_HEXDUMP(TAG, uart_buf, uart_read_len, ESP_LOG_DEBUG);
+            ESP_LOGI(TAG, "UART response of %d bytes sent to client %s", written, client.identifier.c_str());
 
             // Clear the current client and reset the timer
             client.last_uart_time = esphome::millis(); // Reset the timeout timer            
