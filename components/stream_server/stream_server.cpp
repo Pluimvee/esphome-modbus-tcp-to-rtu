@@ -120,19 +120,18 @@ void StreamServerComponent::exchange()
         if (!client.uart_user_)         // this client is not waiting for a response -> skip
             continue;
         
-        // wait at least 200ms before reading from UART
-        if (esphome::millis() - client.last_uart_time < 200) 
-            return;
-
         // found a client awaiting for UART response
         uart_read_len = this->stream_->available();
 
-        if (uart_read_len > sizeof(uart_buf)) { // buffer overflow protection
-            ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
-            uart_read_len = sizeof(uart_buf);
-        }
         if (uart_read_len > 3) // wait for at least 4 bytes to be available
         {
+            esphome::delay(20); // wait for more bytes to be available
+            uart_read_len = this->stream_->available();
+            
+            if (uart_read_len > sizeof(uart_buf)) { // buffer overflow protection
+                ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
+                uart_read_len = sizeof(uart_buf);
+            }
             if (this->stream_->read_array(uart_buf, uart_read_len) == false) {
                 ESP_LOGW(TAG, "Failed to read from UART");
                 client.uart_user_ = false;
