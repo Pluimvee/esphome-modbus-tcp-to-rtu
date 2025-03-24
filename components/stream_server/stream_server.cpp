@@ -171,9 +171,9 @@ void StreamServerComponent::exchange()
         else {
             // cleanup clients which used the uart once, and have no communication for 60 seconds
             if (client.last_uart_time != 0 && (esphome::millis() - client.last_uart_time) > 60000) {
-//                ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
-//                client.socket->close();
-//                client.disconnected = true;
+                ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
+                client.socket->close();
+                client.disconnected = true;
             }
             return;
         }
