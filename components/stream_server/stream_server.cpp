@@ -93,16 +93,15 @@ void StreamServerComponent::cleanup()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void log_byte_array(const char *tag, const uint8_t *data, size_t len) {
+void LOG_BYTES(const char *tag, const char *prefix, const uint8_t *data, size_t len) {
     char buf[512]; // Ensure this buffer is large enough for your data
     size_t pos = 0;
 
     for (size_t i = 0; i < len && pos < sizeof(buf) - 3; i++) { // Reserve space for null terminator
-        pos += snprintf(&buf[pos], sizeof(buf) - pos, "%02X ", data[i]);
+        pos += snprintf(&buf[pos], sizeof(buf) - pos, "%02X:", data[i]);
     }
-
     buf[pos] = '\0'; // Null-terminate the string
-    ESP_LOGD(tag, "Byte array: %s", buf);
+    ESP_LOGD(tag, "%s %s", prefix, buf);
 }
 
 void StreamServerComponent::exchange() 
@@ -139,7 +138,7 @@ void StreamServerComponent::exchange()
             if (this->modbus_) {
                 this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
             }
-            log_byte_array(TAG, uart_buf, uart_read_len);
+            LOG_BYTES(TAG, "To send >>>", uart_buf, uart_read_len);
             int written = client.socket->write(uart_buf, uart_read_len);
             ESP_LOGI(TAG, "UART response of %d bytes sent to client %s", written, client.identifier.c_str());
 
@@ -167,7 +166,7 @@ void StreamServerComponent::exchange()
         socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
         if (socket_read_len > 0) 
         {
-            log_byte_array(TAG, socket_buf, socket_read_len);
+            LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
             if (this->modbus_) {
                 this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
