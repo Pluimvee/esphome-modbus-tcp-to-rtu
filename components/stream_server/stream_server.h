@@ -57,7 +57,7 @@ protected:
         std::string identifier{};
         bool disconnected{false};
         uint32_t last_uart_time{0};    // Track the start time for UART response
-        uart_user_{false};             // Track if UART is in use by this client
+        bool uart_user_{false};             // Track if UART is in use by this client
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
