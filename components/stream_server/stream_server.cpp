@@ -130,7 +130,7 @@ void StreamServerComponent::exchange()
         else if (uart_available > 3) // wait for at least 4 bytes to be available
         {
             if (uart_available > sizeof(uart_buf)) { // buffer overflow protection
-                ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
+                ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_available - sizeof(uart_buf));
                 uart_available = sizeof(uart_buf);
             }
             if (this->stream_->read_array(uart_buf, uart_available) == false) {
@@ -142,10 +142,10 @@ void StreamServerComponent::exchange()
             }
             // Step 4: Send the UART response back to the socket
             if (this->modbus_) {
-                this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
+                this->modbus_rtu_to_tcp(uart_buf, uart_available);
             }
-            LOG_BYTES(TAG, "To send >>>", uart_buf, uart_read_len);
-            int written = client.socket->write(uart_buf, uart_read_len);
+            LOG_BYTES(TAG, "To send >>>", uart_buf, uart_available);
+            int written = client.socket->write(uart_buf, uart_available);
             ESP_LOGI(TAG, "UART response of %d bytes sent to client %s", written, client.identifier.c_str());
 
             // Clear the current client and reset the timer
