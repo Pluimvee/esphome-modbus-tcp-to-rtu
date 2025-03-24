@@ -93,6 +93,18 @@ void StreamServerComponent::cleanup()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void log_byte_array(const char *tag, const uint8_t *data, size_t len) {
+    char buf[512]; // Ensure this buffer is large enough for your data
+    size_t pos = 0;
+
+    for (size_t i = 0; i < len && pos < sizeof(buf) - 3; i++) { // Reserve space for null terminator
+        pos += snprintf(&buf[pos], sizeof(buf) - pos, "%02X ", data[i]);
+    }
+
+    buf[pos] = '\0'; // Null-terminate the string
+    ESP_LOGD(tag, "Byte array: %s", buf);
+}
+
 void StreamServerComponent::exchange() 
 {
     uint8_t socket_buf[260]; // Buffer for reading socket data
@@ -121,7 +133,7 @@ void StreamServerComponent::exchange()
                 this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
             }
             int written = client.socket->write(uart_buf, uart_read_len);
-            ESP_LOG_BUFFER_HEXDUMP(TAG, uart_buf, uart_read_len, ESP_LOG_DEBUG);
+            log_byte_array(TAG, uart_buf, uart_read_len);
             ESP_LOGI(TAG, "UART response of %d bytes sent to client %s", written, client.identifier.c_str());
 
             // Clear the current client and reset the timer
