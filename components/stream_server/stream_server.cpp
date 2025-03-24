@@ -167,6 +167,7 @@ void StreamServerComponent::exchange()
         socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
         if (socket_read_len > 0) 
         {
+            log_byte_array(TAG, socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
             if (this->modbus_) {
                 this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
