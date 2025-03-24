@@ -64,7 +64,6 @@ protected:
     uint16_t port_{502};
     size_t buf_size_;
     bool modbus_{true};
-    bool uart_in_use_{false};
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;

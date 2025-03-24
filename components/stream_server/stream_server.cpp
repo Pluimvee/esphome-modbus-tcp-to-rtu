@@ -100,82 +100,82 @@ void StreamServerComponent::exchange()
     ssize_t socket_read_len;
     ssize_t uart_read_len;
 
-    for (Client &client : this->clients_) {
+    // First see if we have a client waiting for a reponse from the UART
+    for (Client &client : this->clients_) 
+    {
+        if (client.disconnected)        // this client is disconneted -> skip
+            continue;
+
+        if (!client.uart_user_)         // this client is not waiting for a response -> skip
+            continue;
+        
+        // found a client awaiting for UART response
+        uart_read_len = this->stream_->available();
+
+        if (uart_read_len > 5) // wait for at least 5 bytes to be available
+        {
+            uart_read_len = this->stream_->read_array(uart_buf, std::min(uart_read_len, (ssize_t) sizeof(uart_buf)));
+
+            // Step 4: Send the UART response back to the socket
+            if (this->modbus_) {
+                this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
+            }
+            client.socket->write(uart_buf, uart_read_len);
+
+            // Clear the current client and reset the timer
+            client.last_uart_time = esphome::millis(); // Reset the timeout timer            
+            client.uart_user_ = false;
+        } 
+        if (esphome::millis() - client.last_uart_time > 5000) { // 5-second ModBus timeout
+            // Handle UART timeout
+            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
+            // flush all remaining bytes in UART queue and hope to recover
+            this->stream_->flush();
+            client.uart_user_ = false;
+        }
+        if (client.uart_user_)  // this client is still actively waiting for uart response
+            return;     // skip the rest of the loop, and skip sending any data
+    }
+
+    // No client is waiting for a response, so we can read from the socket to send new data to uart
+    for (Client &client : this->clients_) 
+    {
         if (client.disconnected)
             continue;
 
-        // Step 1: Read data from the socket
-        if (!uart_in_use_) { // Only read if no client is waiting for a response
-            socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
-            if (socket_read_len > 0) {
-                // Step 2: Send the data to the UART
-                if (this->modbus_) {
-                    this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
-                }
-                this->stream_->write_array(socket_buf, socket_read_len);
-
-                // Mark the client as waiting for a UART response
-                uart_in_use_ = true;
-                client.last_uart_time = esphome::millis(); // Start the timeout timer
-                client.uart_user_ = true;
-            
-                return; // Move to the next iteration to wait for the UART response
-            } 
-            if (socket_read_len == 0 || errno == ECONNRESET) {
-                // Handle socket disconnection
-                ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
-                client.disconnected = true;
-
-                return;
-            } 
-            if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                // No data available on the socket, continue to the next client
-                return;
-                
-            } else {
-                ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
-                client.disconnected = true;
-            }
-            return;
-        }
-
-        // Step 2: Wait for UART response (non-blocking)
-        if (uart_in_use_ && client.uart_user_) 
+        socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
+        if (socket_read_len > 0) 
         {
-            uart_read_len = this->stream_->available();
-
-            if (uart_read_len > 5) // wait for at least 5 bytes to be available
-            {
-                uart_read_len = this->stream_->read_array(uart_buf, std::min(uart_read_len, (ssize_t) sizeof(uart_buf)));
-
-                // Step 4: Send the UART response back to the socket
-                if (this->modbus_) {
-                    this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
-                }
-                client.socket->write(uart_buf, uart_read_len);
-
-                // Clear the current client and reset the timer
-                client.uart_user_ = false;
-                uart_in_use_ = false;
-                client.last_uart_time = esphome::millis(); // Reset the timeout timer
-            } 
-            else if (esphome::millis() - client.last_uart_time > 5000) { // 5-second ModBus timeout
-                // Handle UART timeout
-                ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-                client.uart_user_ = false;
-                uart_in_use_ = false;
-                // flush all remaining bytes in UART queue and hope to recover
-                this->stream_->flush();
+            // Step 2: Send the data to the UART
+            if (this->modbus_) {
+                this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
             }
-        }
-        else {
+            this->stream_->write_array(socket_buf, socket_read_len);
+
+            // Mark the client as waiting for a UART response
+            client.last_uart_time = esphome::millis(); // Start the timeout timer
+            client.uart_user_ = true;
+            
+            return; // we now wait for the UART response
+        } 
+        if (socket_read_len == 0 || errno == ECONNRESET) 
+        {
+            // Handle socket disconnection
+            ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
+            client.disconnected = true;
+            continue;
+        } 
+        // socket_read_len < 0
+        if (errno == EWOULDBLOCK || errno == EAGAIN) {  
+            // No data available on the socket
             // cleanup clients which used the uart once, and have no communication for 60 seconds
-            if (client.last_uart_time != 0 && (esphome::millis() - client.last_uart_time) > 60000) {
+            if (esphome::millis() - client.last_uart_time > 60000) {
                 ESP_LOGD(TAG, "Client %s disconnected due to inactivity", client.identifier.c_str());
-                client.socket->close();
                 client.disconnected = true;
             }
-            return;
+        } else {
+            ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
+            client.disconnected = true;
         }
     }
 }
