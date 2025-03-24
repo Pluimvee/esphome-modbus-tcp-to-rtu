@@ -123,17 +123,19 @@ void StreamServerComponent::exchange()
         
         // found a client awaiting for UART response
         uart_read_len = this->stream_->available();
+        ESP_LOGI(TAG, "UART available %d bytes", uart_read_len);
 
         if (uart_read_len > 5) // wait for at least 5 bytes to be available
         {
             uart_read_len = this->stream_->read_array(uart_buf, std::min(uart_read_len, (ssize_t) sizeof(uart_buf)));
+            ESP_LOGI(TAG, "UART response of %d bytes", uart_read_len);
 
             // Step 4: Send the UART response back to the socket
             if (this->modbus_) {
                 this->modbus_rtu_to_tcp(uart_buf, uart_read_len);
             }
-            int written = client.socket->write(uart_buf, uart_read_len);
             log_byte_array(TAG, uart_buf, uart_read_len);
+            int written = client.socket->write(uart_buf, uart_read_len);
             ESP_LOGI(TAG, "UART response of %d bytes sent to client %s", written, client.identifier.c_str());
 
             // Clear the current client and reset the timer
