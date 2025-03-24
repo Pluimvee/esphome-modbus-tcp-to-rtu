@@ -221,6 +221,14 @@ void StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
         len = 0;
         return;
     }
+    this->last_transaction_id_ = (frame[0] << 8) | frame[1];
+    this->last_protocol_id_ = (frame[2] << 8) | frame[3];
+    ssize_t frame_len = (frame[4] << 8) | frame[5];
+    if (len < frame_len + 6) {
+        len = 0;
+        ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
+        return;
+    }
     memmove(frame, frame +6, len -6); // Shift TCP frame to remove MBAP header
     len -= 6;
     uint16_t crc = calculate_crc(frame, len);
@@ -235,8 +243,8 @@ void StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
         len = 0;
         return;
     }
-    uint16_t transaction_id = 0; // Set appropriate transaction ID
-    uint16_t protocol_id = 0;
+    uint16_t transaction_id = this->last_transaction_id_;
+    uint16_t protocol_id = this->last_protocol_id_;
     uint16_t length = len -2; // Length without CRC
     memmove(frame + 6, frame, len - 2); // Shift RTU frame to make space for MBAP header,
     frame[0] = (transaction_id >> 8) & 0xFF;
