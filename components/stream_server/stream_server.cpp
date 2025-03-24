@@ -171,6 +171,7 @@ void StreamServerComponent::exchange()
             if (this->modbus_) {
                 this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
             }
+            this->stream_->flush(); // empty UART as we will write new data
             this->stream_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response
