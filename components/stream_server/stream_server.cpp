@@ -109,7 +109,7 @@ void StreamServerComponent::exchange()
     uint8_t socket_buf[260]; // Buffer for reading socket data
     uint8_t uart_buf[260];   // Buffer for UART response
     ssize_t socket_read_len;
-    ssize_t uart_read_len;
+    ssize_t uart_available;
 
     // First see if we have a client waiting for a reponse from the UART
     for (Client &client : this->clients_) 
@@ -121,20 +121,23 @@ void StreamServerComponent::exchange()
             continue;
         
         // found a client awaiting for UART response
-        uart_read_len = this->stream_->available();
+        uart_available = this->stream_->available();
 
-        if (uart_read_len > 3) // wait for at least 4 bytes to be available
+        if (last_uart_availability_ != uart_available) { // data is still coming in
+            last_uart_availability_ = uart_available;
+            esphome::delay(10); // wait for more data to come in
+        }
+        else if (uart_available > 3) // wait for at least 4 bytes to be available
         {
-            esphome::delay(20); // wait for more bytes to be available
-            uart_read_len = this->stream_->available();
-            
-            if (uart_read_len > sizeof(uart_buf)) { // buffer overflow protection
+            if (uart_available > sizeof(uart_buf)) { // buffer overflow protection
                 ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
-                uart_read_len = sizeof(uart_buf);
+                uart_available = sizeof(uart_buf);
             }
-            if (this->stream_->read_array(uart_buf, uart_read_len) == false) {
+            if (this->stream_->read_array(uart_buf, uart_available) == false) {
                 ESP_LOGW(TAG, "Failed to read from UART");
                 client.uart_user_ = false;
+                this->stream_->flush();
+                last_uart_availability_ = 0; // reset the availability counter
                 continue;
             }
             // Step 4: Send the UART response back to the socket
@@ -154,6 +157,7 @@ void StreamServerComponent::exchange()
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
             // flush all remaining bytes in UART queue and hope to recover
             this->stream_->flush();
+            last_uart_availability_ = 0; // reset the availability counter
             client.uart_user_ = false;
         }
         if (client.uart_user_)  // this client is still actively waiting for uart response
@@ -175,6 +179,7 @@ void StreamServerComponent::exchange()
                 this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
             }
             this->stream_->flush(); // empty UART as we will write new data
+            last_uart_availability_ = 0; // reset the availability counter
             this->stream_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response

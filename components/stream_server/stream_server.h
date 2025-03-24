@@ -66,6 +66,7 @@ protected:
     bool modbus_{true};
     uint16_t last_transaction_id_{0};
     uint16_t last_protocol_id_{0};
+    ssize_t last_uart_availability_{0};
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;
