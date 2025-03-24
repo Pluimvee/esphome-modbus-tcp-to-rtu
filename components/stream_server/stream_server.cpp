@@ -123,7 +123,6 @@ void StreamServerComponent::exchange()
         
         // found a client awaiting for UART response
         uart_read_len = this->stream_->available();
-        ESP_LOGI(TAG, "UART available %d bytes", uart_read_len);
 
         if (uart_read_len > sizeof(uart_buf)) { // buffer overflow protection
             ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
