@@ -120,6 +120,10 @@ void StreamServerComponent::exchange()
         if (!client.uart_user_)         // this client is not waiting for a response -> skip
             continue;
         
+        // wait at least 200ms before reading from UART
+        if (esphome::millis() - client.last_uart_time < 200) 
+            return;
+
         // found a client awaiting for UART response
         uart_read_len = this->stream_->available();
 
@@ -127,7 +131,7 @@ void StreamServerComponent::exchange()
             ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_read_len - sizeof(uart_buf));
             uart_read_len = sizeof(uart_buf);
         }
-        if (uart_read_len > 5) // wait for at least 5 bytes to be available
+        if (uart_read_len > 3) // wait for at least 4 bytes to be available
         {
             if (this->stream_->read_array(uart_buf, uart_read_len) == false) {
                 ESP_LOGW(TAG, "Failed to read from UART");
@@ -218,8 +222,9 @@ void StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
 {
     // Modbus TCP to RTU conversion logic
     // Example: Strip the MBAP header (first 7 bytes) and add CRC
-    if (len < 7) {
+    if (len < 8) {
         len = 0;
+        ESP_LOGE(TAG, "Frame too short for Modbus TCP conversion");
         return;
     }
     this->last_transaction_id_ = (frame[0] << 8) | frame[1];
@@ -244,6 +249,7 @@ void StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
         len = 0;
         return;
     }
+    // TODO validate CRC and frame len
     uint16_t transaction_id = this->last_transaction_id_;
     uint16_t protocol_id = this->last_protocol_id_;
     uint16_t length = len -2; // Length without CRC
