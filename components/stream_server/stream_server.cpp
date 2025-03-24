@@ -118,8 +118,6 @@ void StreamServerComponent::exchange()
                 current_client_ = &client;
                 client.last_uart_time = esphome::millis(); // Start the timeout timer
             
-                // Enforce a minimum wait time before reading from the UART
-                esphome::delay(100);
                 return; // Move to the next iteration to wait for the UART response
             } 
             if (socket_read_len == 0 || errno == ECONNRESET) {
