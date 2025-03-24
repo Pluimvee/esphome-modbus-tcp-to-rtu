@@ -125,7 +125,8 @@ void StreamServerComponent::exchange()
 
         if (last_uart_availability_ != uart_available) { // data is still coming in
             last_uart_availability_ = uart_available;
-            esphome::delay(10); // wait for more data to come in
+            client.last_uart_time = esphome::millis(); // there is data comming in
+            esphome::delay(15); // wait for more data to come in
         }
         else if (uart_available > 3) // wait for at least 4 bytes to be available
         {
