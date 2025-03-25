@@ -56,8 +56,7 @@ protected:
         std::unique_ptr<esphome::socket::Socket> socket{nullptr};
         std::string identifier{};
         bool disconnected{false};
-        uint32_t last_uart_time{0};    // Track the start time for UART response
-        bool uart_user_{false};             // Track if UART is in use by this client
+        bool uart_user_{false};        // Track if UART is in use by this client
     };
 
     esphome::uart::UARTComponent *stream_{nullptr};
@@ -67,6 +66,7 @@ protected:
     uint16_t last_transaction_id_{0};
     uint16_t last_protocol_id_{0};
     ssize_t last_uart_availability_{0};
+    uint32_t last_uart_usage_{0};    // Track the last time the UART was used
 
 #ifdef USE_BINARY_SENSOR
     esphome::binary_sensor::BinarySensor *connected_sensor_;
