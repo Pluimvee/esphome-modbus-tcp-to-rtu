@@ -289,7 +289,7 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
         ESP_LOGD(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
         return false;
     }
-    int data_len = this->uart_buf_.size() - 4; // unknown data length, set to what we have - 4 bytes
+    int frame_len = this->uart_buf_.size(); // unknown data length, set to what we have
     switch (this->uart_buf_[1]) 
     {
     case 0x01:  // Read Coils
@@ -302,40 +302,36 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
     case 0x17:  // Read/Write Multiple Registers
     case 0x18:  // Read FIFO Queue
     case 0x2B:  // Read Device Identification
-        data_len = this->uart_buf_[2];
+        frame_len = this->uart_buf_[2] + 3 + 2; // data length + 3 bytes PDU header + 2 bytes CRC
         break;
     case 0x05:  // Write Single Coil
     case 0x06:  // Write Single Holding Register
     case 0x0B:  // Get Comm Event Counter
     case 0x0F:  // Write Multiple Coils
     case 0x10:  // Write Multiple Holding Registers
-        data_len = 4;
+        data_len = 4 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x15:  // Write File Record
-        data_len = 2;
+        data_len = 2 + 2 + 2; // 2 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x16:  // Mask Write Register
-        data_len = 6;
+        data_len = 6 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x07:  // Read Exception Status
-        data_len = 1;
+        data_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x08:  // Diagnostics -> same as in request
     default:
         if (this->uart_buf_[1] & 0x80)
-            data_len = 1; // Error response
+            data_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     }
-    
-    len = 3 + data_len + 2; // 3 bytes MBAP header + data length + 2 bytes CRC
-
-    if (this->uart_buf_.size() != len) {
-        ESP_LOGD(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), len);
+    if (this->uart_buf_.size() != frame_len) {
+        ESP_LOGD(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
         return false;
     }
-    len -= 2;   // remove CRC from length
-    uint16_t crc = calculate_crc(this->uart_buf_.data(), len);
-    uint16_t crc2 = this->uart_buf_[this->uart_buf_.size() - 1] << 8 | this->uart_buf_[this->uart_buf_.size() - 2];
+    uint16_t crc = calculate_crc(this->uart_buf_.data(), frame_len - 2);
+    uint16_t crc2 = this->uart_buf_[frame_len - 1] << 8 | this->uart_buf_[frame_len - 2];
     if (crc != crc2) {
         ESP_LOGD(TAG, "CRC mismatch: %04X != %04X", crc, crc2);
         return false;
@@ -343,15 +339,15 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
     // all seems to be valid, now add MBAP header
     uint16_t transaction_id = this->last_transaction_id_;
     uint16_t protocol_id = this->last_protocol_id_;
-    uint16_t length = len -2; // Length without CRC
-    memcpy(frame + 6, this->uart_buf_.data(), len); // Shift RTU frame to make space for MBAP header,
+    uint16_t length = frame_len -2; // the RTU frame without CRC
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
     frame[2] = (protocol_id >> 8) & 0xFF;
     frame[3] = protocol_id & 0xFF;
     frame[4] = (length >> 8) & 0xFF;
     frame[5] = length & 0xFF;
-    len = 6 + len;             //  Note: buffer needs to be 4 bytes longer as len
+    memcpy(frame + 6, this->uart_buf_.data(), length); 
+    len = 6 + length; // 6 bytes MBAP header + data length
 
     return true;
 }
