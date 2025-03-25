@@ -122,8 +122,9 @@ void StreamServerComponent::read()
     if (this->uart_->available() == 0)
         return;
 
-    while (this->uart_->available()) 
-        uart_buf_.push_back(this->uart_->read());
+    uint8_t b;
+    while (this->uart_->read_byte(&b)) 
+        uart_buf_.push_back(b);
     last_uart_usage_ = esphome::millis(); // register data comming in
 }
 
@@ -172,7 +173,7 @@ void StreamServerComponent::exchange()
         client.uart_user_ = false;
         this->uart_->flush();       // empty UART as we will write new data
         this->uart_buf_.clear();    // clear the buffer
-        
+
         return; // we now wait for the next socket read
     }
 
