@@ -123,7 +123,7 @@ void StreamServerComponent::read()
         return;
 
     uint8_t b;
-    while (this->uart_->read_byte(&b)) 
+    while (this->uart_->available() >0 && this->uart_->read_byte(&b)) 
         uart_buf_.push_back(b);
     last_uart_usage_ = esphome::millis(); // register data comming in
 }
