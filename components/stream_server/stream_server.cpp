@@ -258,8 +258,9 @@ bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
         ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
         return false;
     }
-    memmove(frame, frame +6, len -6); // Shift TCP frame to remove MBAP header
-    len -= 6;
+    len = frame_len; // remove unit_id
+    memmove(frame, frame +6, len); // Shift TCP frame to remove MBAP header
+
     uint16_t crc = calculate_crc(frame, len);
     frame[len++] = crc & 0xFF;
     frame[len++] = (crc >> 8) & 0xFF;
