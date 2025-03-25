@@ -218,7 +218,6 @@ void StreamServerComponent::exchange()
 StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier)
     : socket(std::move(socket)), identifier{identifier} 
 {
-    last_uart_time = esphome::millis(); // give it a fresh start
     uart_user_ = false;
     disconnected = false;
 }
