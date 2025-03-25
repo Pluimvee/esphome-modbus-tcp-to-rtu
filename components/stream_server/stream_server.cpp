@@ -132,6 +132,7 @@ void StreamServerComponent::read()
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define MODBUS_MESSAGE_TIMEOUT 5000
+#define MODBUS_RECEIVE_DELAY   300
 
 void StreamServerComponent::exchange() 
 {
@@ -151,7 +152,7 @@ void StreamServerComponent::exchange()
         uint32_t time_delta = esphome::millis() - last_uart_usage_;
 
         // If we just send, or (still) receive data, wait for the UART to finish
-        if (time_delta < 300) 
+        if (time_delta < MODBUS_RECEIVE_DELAY) 
             return; // skip the rest of the loop, and skip sending any data
 
         // wait for at least 4 bytes data (within the timeout period)
@@ -180,7 +181,7 @@ void StreamServerComponent::exchange()
     // If we get here, then no client is waiting for an UART response,
     // so we can read from the socket to send new data to UART
     // to prevent bursts, we wait awhile between the last UART comm and the next socket read
-    if (esphome::millis() - last_uart_usage_ < 300) 
+    if (esphome::millis() - last_uart_usage_ < MODBUS_RECEIVE_DELAY) 
         return; 
 
     for (Client &client : this->clients_) 
@@ -281,12 +282,12 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
 
     // validate unit_id
     if (this->uart_buf_[0] != last_unit_id_) {
-        ESP_LOGD(TAG, "Unit ID mismatch: %02X != %02X", this->uart_buf_[0], last_unit_id_);
+        ESP_LOGE(TAG, "Unit ID mismatch: %02X != %02X", this->uart_buf_[0], last_unit_id_);
         return false;
     }
     // validate funciton_code: ignore error response as these are valid to communicate over TCP
     if ((this->uart_buf_[1] & 0x7F) != last_function_code_) {    
-        ESP_LOGD(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
+        ESP_LOGE(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
         return false;
     }
     int frame_len = this->uart_buf_.size(); // unknown data length, set to what we have
@@ -309,31 +310,31 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
     case 0x0B:  // Get Comm Event Counter
     case 0x0F:  // Write Multiple Coils
     case 0x10:  // Write Multiple Holding Registers
-        data_len = 4 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
+        frame_len = 4 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x15:  // Write File Record
-        data_len = 2 + 2 + 2; // 2 bytes data + 2 bytes PDU header + 2 bytes CRC
+        frame_len = 2 + 2 + 2; // 2 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x16:  // Mask Write Register
-        data_len = 6 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
+        frame_len = 6 + 2 + 2; // 4 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x07:  // Read Exception Status
-        data_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
+        frame_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     case 0x08:  // Diagnostics -> same as in request
     default:
         if (this->uart_buf_[1] & 0x80)
-            data_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
+            frame_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     }
     if (this->uart_buf_.size() != frame_len) {
-        ESP_LOGD(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
+        ESP_LOGE(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
         return false;
     }
     uint16_t crc = calculate_crc(this->uart_buf_.data(), frame_len - 2);
     uint16_t crc2 = this->uart_buf_[frame_len - 1] << 8 | this->uart_buf_[frame_len - 2];
     if (crc != crc2) {
-        ESP_LOGD(TAG, "CRC mismatch: %04X != %04X", crc, crc2);
+        ESP_LOGE(TAG, "CRC mismatch: %04X != %04X", crc, crc2);
         return false;
     }
     // all seems to be valid, now add MBAP header
