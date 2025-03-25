@@ -12,26 +12,32 @@ static const char *TAG = "stream_server";
 
 using namespace esphome;
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// StreamServerComponent implementation
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::setup() {
     ESP_LOGCONFIG(TAG, "Setting up stream server...");
 
     struct sockaddr_storage bind_addr;
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
 
-    this->socket_ = socket::socket_ip(SOCK_STREAM, AF_INET);
-    this->socket_->setblocking(false);
-    this->socket_->bind(reinterpret_cast<struct sockaddr *>(&bind_addr), bind_addrlen);
-    this->socket_->listen(8);
+    this->listener_ = socket::socket_ip(SOCK_STREAM, AF_INET);
+    this->listener_->setblocking(false);
+    this->listener_->bind(reinterpret_cast<struct sockaddr *>(&bind_addr), bind_addrlen);
+    this->listener_->listen(8);
 
     this->publish_sensor();
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::loop() {
     this->accept();
+    this->read();
     this->exchange();
     this->cleanup();
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "Stream Server:");
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
@@ -43,11 +49,13 @@ void StreamServerComponent::dump_config() {
 #endif
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::on_shutdown() {
     for (const Client &client : this->clients_)
         client.socket->shutdown(SHUT_RDWR);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::publish_sensor() {
 #ifdef USE_BINARY_SENSOR
     if (this->connected_sensor_)
@@ -66,7 +74,7 @@ void StreamServerComponent::accept()
 {
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
-    std::unique_ptr<socket::Socket> socket = this->socket_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
+    std::unique_ptr<socket::Socket> socket = this->listener_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
     if (!socket)
         return;
 
@@ -100,16 +108,34 @@ void LOG_BYTES(const char *tag, const char *prefix, const uint8_t *data, size_t 
     for (size_t i = 0; i < len && pos < sizeof(buf) - 3; i++) { // Reserve space for null terminator
         pos += snprintf(&buf[pos], sizeof(buf) - pos, "%02X:", data[i]);
     }
+    if (pos > 0)
+        pos--; // Remove trailing colon
     buf[pos] = '\0'; // Null-terminate the string
     ESP_LOGD(tag, "%s %s", prefix, buf);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void StreamServerComponent::read() 
+{
+    if (this->uart_->available() == 0)
+        return;
+
+    while (this->uart_->available()) 
+        uart_buf_.push_back(this->uart_->read());
+    last_uart_usage_ = esphome::millis(); // register data comming in
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Exchange messages from socket to UART and back
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#define MODBUS_MESSAGE_TIMEOUT 5000
+
 void StreamServerComponent::exchange() 
 {
     uint8_t socket_buf[260]; // Buffer for reading socket data
-    uint8_t uart_buf[260];   // Buffer for UART response
     ssize_t socket_read_len;
-    ssize_t uart_available;
 
     // First see if we have a client waiting for a reponse from the UART
     for (Client &client : this->clients_) 
@@ -119,57 +145,43 @@ void StreamServerComponent::exchange()
 
         if (!client.uart_user_)         // this client is not waiting for a response -> skip
             continue;
-        
+
         // found a client awaiting for UART response
-        uart_available = this->stream_->available();
+        uint32_t time_delta = esphome::millis() - last_uart_usage_;
 
-        if (last_uart_availability_ != uart_available) { // data is still coming in
-            last_uart_availability_ = uart_available;
-            last_uart_usage_ = esphome::millis(); // there is data comming in
-            esphome::delay(15); // wait for more data to come in
-        }
-        else if (uart_available > 3) // wait for at least 4 bytes to be available
+        // If we just send, or (still) receive data, wait for the UART to finish
+        if (time_delta < 100) 
+            return; // skip the rest of the loop, and skip sending any data
+
+        // wait for at least 4 bytes data (within the timeout period)
+        if (this->uart_buf_.size() < 4 && time_delta < MODBUS_MESSAGE_TIMEOUT) 
+            return; // we are still waiting for data 
+
+        // validate and convert the UART data to Modbus TCP
+        if (this->modbus_rtu_to_tcp(socket_buf, socket_read_len))
         {
-            if (uart_available > sizeof(uart_buf)) { // buffer overflow protection
-                ESP_LOGW(TAG, "UART buffer overflow, discarding %d bytes", uart_available - sizeof(uart_buf));
-                uart_available = sizeof(uart_buf);
-            }
-            if (this->stream_->read_array(uart_buf, uart_available) == false) {
-                ESP_LOGW(TAG, "Failed to read from UART");
-                client.uart_user_ = false;
-                this->stream_->flush();
-                last_uart_availability_ = 0; // reset the availability counter
-                continue;
-            }
-            // Step 4: Send the UART response back to the socket
-            if (this->modbus_) {
-                this->modbus_rtu_to_tcp(uart_buf, uart_available);
-            }
-            LOG_BYTES(TAG, "Send >>>", uart_buf, uart_available);
-            int written = client.socket->write(uart_buf, uart_available);
+            LOG_BYTES(TAG, "Send >>>", socket_buf, socket_read_len);
+            int written = client.socket->write(socket_buf, socket_read_len);
             ESP_LOGI(TAG, "%d bytes sent to client %s", written, client.identifier.c_str());
-
-            // Clear the current client and reset the timer
-            last_uart_usage_ = esphome::millis(); // Reset the timeout timer            
-            client.uart_user_ = false;
-        } 
-        if (esphome::millis() - last_uart_usage_ > 5000) { // 5-second ModBus timeout
-            // Handle UART timeout
-            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-            // flush all remaining bytes in UART queue and hope to recover
-            this->stream_->flush();
-            last_uart_availability_ = 0; // reset the availability counter
-            client.uart_user_ = false;
         }
-        if (client.uart_user_)  // this client is still actively waiting for uart response
-            return;     // skip the rest of the loop, and skip sending any data
+        if (time_delta > MODBUS_MESSAGE_TIMEOUT) 
+            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
+
+        // Clear the current client and reset the timer
+        last_uart_usage_ = esphome::millis(); // Reset the timeout timer            
+        client.uart_user_ = false;
+        this->uart_->flush();       // empty UART as we will write new data
+        this->uart_buf_.clear();    // clear the buffer
+        
+        return; // we now wait for the next socket read
     }
 
     // If we get here, then no client is waiting for an UART response,
     // so we can read from the socket to send new data to UART
-    // to prevent bursts, we need to wait awhile between the last UART comm and the next socket read
-    if (esphome::millis() - last_uart_usage_ < 100) // wait for 100ms
+    // to prevent bursts, we wait awhile between the last UART comm and the next socket read
+    if (esphome::millis() - last_uart_usage_ < 300) 
         return; 
+
     for (Client &client : this->clients_) 
     {
         if (client.disconnected)
@@ -180,12 +192,10 @@ void StreamServerComponent::exchange()
         {
             LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
-            if (this->modbus_) {
-                this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
-            }
-            this->stream_->flush(); // empty UART as we will write new data
-            last_uart_availability_ = 0; // reset the availability counter
-            this->stream_->write_array(socket_buf, socket_read_len);
+            this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
+            this->uart_->flush();       // empty UART as we will write new data
+            this->uart_buf_.clear();    // clear the buffer
+            this->uart_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response
             last_uart_usage_ = esphome::millis(); // Start the timeout timer
@@ -223,16 +233,20 @@ StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> s
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//  Some helpers to convert Modbus TCP to RTU and vice versa
+/* Modbus TCP to RTU conversion logic
+   Strip the MBAP header (first 7 bytes) and add CRC
+Field	        Size    Description
+Transaction ID	2	    Used to match the response to the request.
+Protocol ID	    2	    Always 0x0000 for Modbus.
+Length	        2	    Number of bytes in the remaining message (Unit ID + PDU).
+*/
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
 {
-    // Modbus TCP to RTU conversion logic
-    // Example: Strip the MBAP header (first 7 bytes) and add CRC
     if (len < 8) {
         len = 0;
         ESP_LOGE(TAG, "Frame too short for Modbus TCP conversion");
-        return;
+        return false;
     }
     this->last_transaction_id_ = (frame[0] << 8) | frame[1];
     this->last_protocol_id_ = (frame[2] << 8) | frame[3];
@@ -240,34 +254,105 @@ void StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
     if (len < frame_len + 6) {
         len = 0;
         ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
-        return;
+        return false;
     }
     memmove(frame, frame +6, len -6); // Shift TCP frame to remove MBAP header
     len -= 6;
     uint16_t crc = calculate_crc(frame, len);
     frame[len++] = crc & 0xFF;
     frame[len++] = (crc >> 8) & 0xFF;
+
+    last_unit_id_ = frame[0];           // store for response validation
+    last_function_code_ = frame[1];     // store for response validation
+
+    return true;
 }
 
-void StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
 {
-    // Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
-    if (len < 4) {
-        len = 0;
-        return;
+    len = 0;
+    // validate minimal length
+    if (this->uart_buf_.size() < 4) 
+        return false;
+
+    // validate unit_id
+    if (this->uart_buf_[0] != last_unit_id_) {
+        ESP_LOGD(TAG, "Unit ID mismatch: %02X != %02X", this->uart_buf_[0], last_unit_id_);
+        return false;
     }
-    // TODO validate CRC and frame len
+    // validate funciton_code: ignore error response as these are valid to communicate over TCP
+    if ((this->uart_buf_[1] & 0x7F) != last_function_code_) {    
+        ESP_LOGD(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
+        return false;
+    }
+    int data_len = -1;  // unknown data length
+    switch (this->uart_buf_[1]) 
+    {
+    case 0x01:  // Read Coils
+    case 0x02:  // Read Discrete Inputs
+    case 0x03:  // Read Holding Registers
+    case 0x04:  // Read Input Registers
+    case 0x0C:  // Get Comm Event Log
+    case 0x11:  // Report Slave ID
+    case 0x14:  // Read File Record
+    case 0x17:  // Read/Write Multiple Registers
+    case 0x18:  // Read FIFO Queue
+    case 0x2B:  // Read Device Identification
+        data_len = this->uart_buf_[2];
+        break;
+    case 0x05:  // Write Single Coil
+    case 0x06:  // Write Single Holding Register
+    case 0x0B:  // Get Comm Event Counter
+    case 0x0F:  // Write Multiple Coils
+    case 0x10:  // Write Multiple Holding Registers
+        data_len = 4;
+        break;
+    case 0x15:  // Write File Record
+        data_len = 2;
+        break;
+    case 0x16:  // Mask Write Register
+        data_len = 6;
+        break;
+    case 0x07:  // Read Exception Status
+        data_len = 1;
+        break;
+    case 0x08:  // Diagnostics -> same as in request
+    default:
+        if (this->uart_buf_[1] & 0x80)
+            data_len = 1; // Error response
+        break;
+    }
+    if (data_len >= 0) 
+        len = 3 + data_len + 2; // 3 bytes MBAP header + data length + 2 bytes CRC
+
+    if (this->uart_buf_.size() != len) {
+        ESP_LOGD(TAG, "Frame length mismatch: %d != %d", this->uart_buf_.size(), len);
+        return false;
+    }
+    len -= 2;   // remove CRC from length
+    uint16_t crc = calculate_crc(this->uart_buf_.data(), len);
+    uint16_t crc2 = this->uart_buf_[this->uart_buf_.size() - 1] << 8 | this->uart_buf_[this->uart_buf_.size() - 2];
+    if (crc != crc2) {
+        ESP_LOGD(TAG, "CRC mismatch: %04X != %04X", crc, crc2);
+        return false;
+    }
+    // all seems to be valid, now add MBAP header
     uint16_t transaction_id = this->last_transaction_id_;
     uint16_t protocol_id = this->last_protocol_id_;
     uint16_t length = len -2; // Length without CRC
-    memmove(frame + 6, frame, len - 2); // Shift RTU frame to make space for MBAP header,
+    memcpy(frame + 6, this->uart_buf_.data(), len); // Shift RTU frame to make space for MBAP header,
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
     frame[2] = (protocol_id >> 8) & 0xFF;
     frame[3] = protocol_id & 0xFF;
     frame[4] = (length >> 8) & 0xFF;
     frame[5] = length & 0xFF;
-    len = 6 + len - 2;             //  Note: buffer needs to be 4 bytes longer as len
+    len = 6 + len;             //  Note: buffer needs to be 4 bytes longer as len
+
+    return true;
 }
 
 uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t len) {
@@ -286,3 +371,26 @@ uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t len) {
     }
     return crc;
 }
+
+/*
+Code	Description	                    Byte Count	Notes
+0x01	Read Coils	                    ✅ Yes	Returns multiple coil (bit) values.
+0x02	Read Discrete Inputs	        ✅ Yes	Returns multiple discrete input (bit) values.
+0x03	Read Holding Registers	        ✅ Yes	Returns multiple holding register values.
+0x04	Read Input Registers	        ✅ Yes	Returns multiple input register values.
+0x05	Write Single Coil	            ❌ No	Response echoes request (fixed length).
+0x06	Write Single Holding Register	❌ No	Response echoes request (fixed length).
+0x07	Read Exception Status	        ❌ No	Returns a single byte (status of 8 coils).
+0x08	Diagnostics	                    ❌ No	Used for communication tests (echo request).
+0x0B	Get Comm Event Counter	        ❌ No	Returns 2 bytes (event counter).
+0x0C	Get Comm Event Log	            ✅ Yes	Returns a log of events with byte count.
+0x0F	Write Multiple Coils	        ❌ No	Response echoes request (fixed length).
+0x10	Write Multiple Holding Registers❌ No	Response echoes request (fixed length).
+0x11	Report Slave ID	                ✅ Yes	Returns device-specific data.
+0x14	Read File Record	            ✅ Yes	Returns data from a file record.
+0x15	Write File Record	            ❌ No	Response is fixed-length acknowledgment.
+0x16	Mask Write Register	            ❌ No	Used to modify specific bits in a register.
+0x17	Read/Write Multiple Registers	✅ Yes	Reads & writes multiple registers in one request.
+0x18	Read FIFO Queue	                ✅ Yes	Returns queued data from the slave.
+0x2B	Read Device Identification	    ✅ Yes	Returns device identification info.
+*/
