@@ -151,7 +151,7 @@ void StreamServerComponent::exchange()
         uint32_t time_delta = esphome::millis() - last_uart_usage_;
 
         // If we just send, or (still) receive data, wait for the UART to finish
-        if (time_delta < 100) 
+        if (time_delta < 300) 
             return; // skip the rest of the loop, and skip sending any data
 
         // wait for at least 4 bytes data (within the timeout period)
@@ -289,7 +289,7 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
         ESP_LOGD(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
         return false;
     }
-    int data_len = -1;  // unknown data length
+    int data_len = this->uart_buf_.size() - 4; // unknown data length, set to what we have - 4 bytes
     switch (this->uart_buf_[1]) 
     {
     case 0x01:  // Read Coils
@@ -326,11 +326,11 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
             data_len = 1; // Error response
         break;
     }
-    if (data_len >= 0) 
-        len = 3 + data_len + 2; // 3 bytes MBAP header + data length + 2 bytes CRC
+    
+    len = 3 + data_len + 2; // 3 bytes MBAP header + data length + 2 bytes CRC
 
     if (this->uart_buf_.size() != len) {
-        ESP_LOGD(TAG, "Frame length mismatch: %d != %d", this->uart_buf_.size(), len);
+        ESP_LOGD(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), len);
         return false;
     }
     len -= 2;   // remove CRC from length
