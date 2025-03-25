@@ -131,8 +131,8 @@ void StreamServerComponent::read()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define MODBUS_MESSAGE_TIMEOUT 5000
-#define MODBUS_RECEIVE_DELAY   300
+#define MODBUS_MESSAGE_TIMEOUT 3000
+#define MODBUS_RECEIVE_DELAY   500
 
 void StreamServerComponent::exchange() 
 {
@@ -253,7 +253,7 @@ bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
     this->last_transaction_id_ = (frame[0] << 8) | frame[1];
     this->last_protocol_id_ = (frame[2] << 8) | frame[3];
     ssize_t frame_len = (frame[4] << 8) | frame[5];
-    if (len < frame_len + 6) {
+    if (len < frame_len + 6) {  // we allow for longer frames, but not shorter
         len = 0;
         ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
         return false;
