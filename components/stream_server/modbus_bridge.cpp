@@ -1,4 +1,4 @@
-#include "stream_server.h"
+#include "modbus_bridge.h"
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -8,15 +8,15 @@
 #include "esphome/components/network/util.h"
 #include "esphome/components/socket/socket.h"
 
-static const char *TAG = "ModBusServer";
+static const char *TAG = "ModBus_bridge";
 
 using namespace esphome;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// StreamServerComponent implementation
+// ModBusBridgeComponent implementation
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::setup() {
-    ESP_LOGCONFIG(TAG, "Setting up ModBus server...");
+void ModBusBridgeComponent::setup() {
+    ESP_LOGCONFIG(TAG, "Setting up ModBus bridge...");
 
     struct sockaddr_storage bind_addr;
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
@@ -30,7 +30,7 @@ void StreamServerComponent::setup() {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::loop() {
+void ModBusBridgeComponent::loop() {
     this->accept();
     this->read();
     this->exchange();
@@ -38,8 +38,8 @@ void StreamServerComponent::loop() {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::dump_config() {
-    ESP_LOGCONFIG(TAG, "ModBus Server:");
+void ModBusBridgeComponent::dump_config() {
+    ESP_LOGCONFIG(TAG, "ModBus Bridge:");
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
     ESP_LOGCONFIG(TAG, "  ModBus timeout: %d ms", this->timeout_);
     ESP_LOGCONFIG(TAG, "  UART buffer: %d bytes", this->buf_size_);
@@ -52,13 +52,13 @@ void StreamServerComponent::dump_config() {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::on_shutdown() {
+void ModBusBridgeComponent::on_shutdown() {
     for (const Client &client : this->clients_)
         client.socket->shutdown(SHUT_RDWR);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::publish_sensor() {
+void ModBusBridgeComponent::publish_sensor() {
 #ifdef USE_BINARY_SENSOR
     if (this->connected_sensor_)
         this->connected_sensor_->publish_state(this->clients_.size() > 0);
@@ -72,7 +72,7 @@ void StreamServerComponent::publish_sensor() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Accepting new connections
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::accept() 
+void ModBusBridgeComponent::accept() 
 {
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
@@ -90,7 +90,7 @@ void StreamServerComponent::accept()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Cleanup closed connections
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::cleanup() 
+void ModBusBridgeComponent::cleanup() 
 {
     auto discriminator = [](const Client &client) { return !client.disconnected; };
     auto last_client = std::partition(this->clients_.begin(), this->clients_.end(), discriminator);
@@ -119,7 +119,7 @@ void LOG_BYTES(const char *tag, const char *prefix, const uint8_t *data, size_t 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void StreamServerComponent::read() 
+void ModBusBridgeComponent::read() 
 {
     if (this->uart_->available() == 0)
         return;
@@ -135,7 +135,7 @@ void StreamServerComponent::read()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define MODBUS_RECEIVE_DELAY   500
 
-void StreamServerComponent::exchange() 
+void ModBusBridgeComponent::exchange() 
 {
     uint8_t socket_buf[260]; // Buffer for reading socket data
     ssize_t socket_read_len;
@@ -251,7 +251,7 @@ void StreamServerComponent::exchange()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier)
+ModBusBridgeComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> socket, std::string identifier)
     : socket(std::move(socket)), identifier{identifier} 
 {
     uart_user_ = false;
@@ -264,7 +264,7 @@ StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> s
 // 0 when frame is valid
 // >0 when frame is invalid, in which case the suggested exception code is returned (https://www.simplymodbus.ca/exceptions.htm)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-int StreamServerComponent::validate_rtu_frame() 
+int ModBusBridgeComponent::validate_rtu_frame() 
 {
     if (uart_buf_.size() < 4) // validate minimal length
         return -4;  
@@ -332,7 +332,7 @@ int StreamServerComponent::validate_rtu_frame()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
+bool ModBusBridgeComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
 {
     if (len < 4) 
         return false;  
@@ -359,7 +359,7 @@ Protocol ID	    2	    Always 0x0000 for Modbus.
 Length	        2	    Number of bytes in the remaining message (Unit ID + PDU).
 */
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+bool ModBusBridgeComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
 {
     if (len < 8) {
         ESP_LOGE(TAG, "TCP Frame too short for conversion to RTU");
@@ -387,7 +387,7 @@ bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t len) {
+uint16_t ModBusBridgeComponent::calculate_crc(const uint8_t *data, size_t len) {
     // Implement CRC calculation for Modbus RTU
     uint16_t crc = 0xFFFF;
     for (size_t i = 0; i < len; i++) {

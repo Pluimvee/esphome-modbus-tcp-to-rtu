@@ -12,7 +12,7 @@ DEPENDENCIES = ["uart", "network"]
 MULTI_CONF = True
 
 ns = cg.global_ns
-StreamServerComponent = ns.class_("StreamServerComponent", cg.Component)
+ModBusBridgeComponent = ns.class_("ModBusBridgeComponent", cg.Component)
 
 
 def validate_buffer_size(buffer_size):
@@ -25,7 +25,7 @@ CONFIG_SCHEMA = cv.All(
     cv.require_esphome_version(2022, 3, 0),
     cv.Schema(
         {
-            cv.GenerateID(): cv.declare_id(StreamServerComponent),
+            cv.GenerateID(): cv.declare_id(ModBusBridgeComponent),
             cv.Optional(CONF_PORT, default=502): cv.port,
             cv.Optional(CONF_TIMEOUT, default=2000): cv.positive_int,
             cv.Optional(CONF_BUFFER_SIZE, default=256): cv.All(

@@ -5,14 +5,14 @@ from esphome.const import (
     DEVICE_CLASS_CONNECTIVITY,
     ENTITY_CATEGORY_DIAGNOSTIC,
 )
-from . import ns, StreamServerComponent
+from . import ModBusBridgeComponent
 
 CONF_CONNECTED = "connected"
-CONF_STREAM_SERVER = "stream_server"
+CONF_STREAM_SERVER = "modbus_bridge"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_STREAM_SERVER): cv.use_id(StreamServerComponent),
+        cv.GenerateID(CONF_STREAM_SERVER): cv.use_id(ModBusBridgeComponent),
         cv.Required(CONF_CONNECTED): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,

@@ -15,10 +15,10 @@
 #include <string>
 #include <vector>
 
-class StreamServerComponent : public esphome::Component {
+class ModBusBridgeComponent : public esphome::Component {
 public:
-    StreamServerComponent() = default;
-    explicit StreamServerComponent(esphome::uart::UARTComponent *stream) : uart_{stream} {}
+    ModBusBridgeComponent() = default;
+    explicit ModBusBridgeComponent(esphome::uart::UARTComponent *stream) : uart_{stream} {}
     void set_uart_parent(esphome::uart::UARTComponent *parent) { this->uart_ = parent; }
     void set_buffer_size(size_t size) { this->buf_size_ = size; }
     void set_port(uint16_t port) { this->port_ = port; }

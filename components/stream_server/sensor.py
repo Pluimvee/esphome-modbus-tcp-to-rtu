@@ -5,14 +5,14 @@ from esphome.const import (
     STATE_CLASS_MEASUREMENT,
     ENTITY_CATEGORY_DIAGNOSTIC,
 )
-from . import ns, StreamServerComponent
+from . import ModBusBridgeComponent
 
 CONF_CONNECTION_COUNT = "connection_count"
-CONF_STREAM_SERVER = "stream_server"
+CONF_STREAM_SERVER = "modbus_bridge"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_STREAM_SERVER): cv.use_id(StreamServerComponent),
+        cv.GenerateID(CONF_STREAM_SERVER): cv.use_id(ModBusBridgeComponent),
         cv.Required(CONF_CONNECTION_COUNT): sensor.sensor_schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
