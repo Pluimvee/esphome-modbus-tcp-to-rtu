@@ -334,7 +334,6 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
 {
     if (len < 4) 
         return false;  
-    len = 0;
     uint16_t transaction_id = this->last_transaction_id_;
     uint16_t length = len-2; // the RTU frame without CRC
     frame[0] = (transaction_id >> 8) & 0xFF;
@@ -361,14 +360,12 @@ Length	        2	    Number of bytes in the remaining message (Unit ID + PDU).
 bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
 {
     if (len < 8) {
-        len = 0;
         ESP_LOGE(TAG, "TCP Frame too short for conversion to RTU");
         return false;
     }
     this->last_transaction_id_ = (frame[0] << 8) | frame[1];
     ssize_t frame_len = (frame[4] << 8) | frame[5];
     if (len < frame_len + 6) {  // we allow for longer frames, but not shorter
-        len = 0;
         ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
         return false;
     }
