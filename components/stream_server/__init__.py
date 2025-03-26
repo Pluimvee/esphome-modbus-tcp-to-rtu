@@ -27,9 +27,7 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(StreamServerComponent),
             cv.Optional(CONF_PORT, default=502): cv.port,
-            cv.Optional(
-                CONF_TIMEOUT, default=2000
-            ): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_TIMEOUT, default=2000): cv.positive_int,
             cv.Optional(CONF_BUFFER_SIZE, default=256): cv.All(
                 cv.positive_int, validate_buffer_size
             ),
