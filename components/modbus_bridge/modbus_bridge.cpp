@@ -24,7 +24,7 @@ void ModBusBridgeComponent::setup() {
     this->listener_ = socket::socket_ip(SOCK_STREAM, AF_INET);
     this->listener_->setblocking(false);
     this->listener_->bind(reinterpret_cast<struct sockaddr *>(&bind_addr), bind_addrlen);
-    this->listener_->listen(4);
+    this->listener_->listen(8);
 
     this->publish_sensor();
 }
@@ -74,8 +74,6 @@ void ModBusBridgeComponent::publish_sensor() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void ModBusBridgeComponent::accept() 
 {
-    if (this->clients_.size() >= 4) // limit the number of clients to 4
-        return;
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
     std::unique_ptr<socket::Socket> socket = this->listener_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
@@ -136,7 +134,7 @@ void ModBusBridgeComponent::read()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define MODBUS_RECEIVE_DELAY   100
+#define MODBUS_RECEIVE_DELAY   50
 
 void ModBusBridgeComponent::exchange() 
 {
