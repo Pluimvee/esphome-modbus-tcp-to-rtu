@@ -164,7 +164,11 @@ void StreamServerComponent::exchange()
         {
             LOG_BYTES(TAG, "Send >>>", socket_buf, socket_read_len);
             int written = client.socket->write(socket_buf, socket_read_len);
-            ESP_LOGI(TAG, "%d bytes sent to client %s", written, client.identifier.c_str());
+            if (written != socket_read_len) {
+                ESP_LOGW(TAG, "Failed to send all data to client %s, closing connection", client.identifier.c_str());
+                client.disconnected = true;
+                client.socket->close();
+            }
         }
         if (time_delta > this->timeout_) {
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
@@ -223,6 +227,7 @@ void StreamServerComponent::exchange()
             // Handle socket disconnection
             ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
             client.disconnected = true;
+            client.socket->close();
             continue;
         } 
         // socket_read_len < 0
