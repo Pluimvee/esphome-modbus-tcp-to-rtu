@@ -172,7 +172,7 @@ void ModBusBridgeComponent::exchange()
         }
         if (validation > 0)
         {
-            LOG_BYTES(TAG, "RTU Frame >>>", this->uart_buf_.data(), this->uart_buf_.size());
+            LOG_BYTES(TAG, "RTU Frame <<<", this->uart_buf_.data(), this->uart_buf_.size());
             ESP_LOGW(TAG, "Send Exception code %d to TCP", validation);
             socket_buf[0] = this->last_unit_id_; 
             socket_buf[1] = this->last_function_code_ | 0x80; // set error flag
@@ -193,7 +193,7 @@ void ModBusBridgeComponent::exchange()
             if (written != socket_read_len) {
                 ESP_LOGE(TAG, "Failed to send all data to client %s, closing connection", client.identifier.c_str());
                 client.disconnected = true;
-                client.socket->shutdown(SHUT_RDWR);
+                client.socket->close();
             }
         }
         // Clear the current client and reset the timer
@@ -208,8 +208,6 @@ void ModBusBridgeComponent::exchange()
     // If we get here, then no client is waiting for an UART response,
     // so we can read from the socket to send new data to UART
     // to prevent bursts, we wait awhile between the last UART comm and the next socket read
-    if (esphome::millis() - last_uart_usage_ < this->timeout_) 
-        return; 
 
     for (Client &client : this->clients_) 
     {
