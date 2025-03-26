@@ -69,7 +69,7 @@ protected:
 
     // UART management
     esphome::uart::UARTComponent *uart_{nullptr};
-    size_t buf_size_;
+    size_t buf_size_{300};
     std::vector<uint8_t> uart_buf_;     // Buffer for UART response
     uint32_t last_uart_usage_{0};       // Track the last time the UART was used
 

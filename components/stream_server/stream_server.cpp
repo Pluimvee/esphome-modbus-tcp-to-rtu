@@ -42,6 +42,7 @@ void StreamServerComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "ModBus Server:");
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
     ESP_LOGCONFIG(TAG, "  ModBus timeout: %d ms", this->timeout_);
+    ESP_LOGCONFIG(TAG, "  UART buffer: %d bytes", this->buf_size_);
 #ifdef USE_BINARY_SENSOR
     LOG_BINARY_SENSOR("  ", "Connected:", this->connected_sensor_);
 #endif
@@ -214,7 +215,7 @@ void StreamServerComponent::exchange()
         socket_read_len = client.socket->read(socket_buf, sizeof(socket_buf));
         if (socket_read_len > 0) 
         {
-            LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
+//            LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
             this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
             this->uart_->write_array(socket_buf, socket_read_len);
