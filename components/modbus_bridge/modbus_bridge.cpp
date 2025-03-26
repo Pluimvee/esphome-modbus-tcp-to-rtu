@@ -171,7 +171,7 @@ void ModBusBridgeComponent::exchange()
                 if (this->uart_buf_.size() == 0 || time_delta < (this->timeout_/10))  
                     return; 
                 
-                ESP_LOGW(TAG, "Incomplete RTU, short of %d bytes", validation *-1);
+                ESP_LOGE(TAG, "Incomplete RTU, short of %d bytes", validation *-1);
                 validation = 0x06;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
             }
         }
@@ -203,6 +203,7 @@ void ModBusBridgeComponent::exchange()
         }
         // Clear the current client as we are done with the uart response
         client.uart_user_ = false;
+        return;
     }
 
     // If we get here, then no client is waiting for an UART response,
@@ -218,9 +219,9 @@ void ModBusBridgeComponent::exchange()
 //            LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
             this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
-            this->uart_->write_array(socket_buf, socket_read_len);
             this->uart_->flush();       // empty UART as we will write new data
             this->uart_buf_.clear();    // clear the buffer
+            this->uart_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response
             last_uart_usage_ = esphome::millis(); // Start the timeout timer
