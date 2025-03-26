@@ -8,7 +8,7 @@
 #include "esphome/components/network/util.h"
 #include "esphome/components/socket/socket.h"
 
-static const char *TAG = "stream_server";
+static const char *TAG = "ModBusServer";
 
 using namespace esphome;
 
@@ -16,7 +16,7 @@ using namespace esphome;
 // StreamServerComponent implementation
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::setup() {
-    ESP_LOGCONFIG(TAG, "Setting up stream server...");
+    ESP_LOGCONFIG(TAG, "Setting up ModBus server...");
 
     struct sockaddr_storage bind_addr;
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
@@ -39,8 +39,9 @@ void StreamServerComponent::loop() {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void StreamServerComponent::dump_config() {
-    ESP_LOGCONFIG(TAG, "Stream Server:");
+    ESP_LOGCONFIG(TAG, "ModBus Server:");
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
+    ESP_LOGCONFIG(TAG, "  ModBus timeout: %d ms", this->timeout_);
 #ifdef USE_BINARY_SENSOR
     LOG_BINARY_SENSOR("  ", "Connected:", this->connected_sensor_);
 #endif
@@ -131,7 +132,6 @@ void StreamServerComponent::read()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define MODBUS_MESSAGE_TIMEOUT 3000
 #define MODBUS_RECEIVE_DELAY   500
 
 void StreamServerComponent::exchange() 
@@ -166,9 +166,23 @@ void StreamServerComponent::exchange()
             int written = client.socket->write(socket_buf, socket_read_len);
             ESP_LOGI(TAG, "%d bytes sent to client %s", written, client.identifier.c_str());
         }
-        if (time_delta > MODBUS_MESSAGE_TIMEOUT) 
+        if (time_delta > this->timeout_) {
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
+            uint16_t transaction_id = this->last_transaction_id_;
+            uint16_t protocol_id = this->last_protocol_id_;
+            socket_buf[0] = (transaction_id >> 8) & 0xFF;
+            socket_buf[1] = transaction_id & 0xFF;
+            socket_buf[2] = 0x00;   // protocol_id = always 0x0000 for TCP Modbus
+            socket_buf[3] = 0x00;   // protocol_id = always 0x0000 for TCP Modbus
+            socket_buf[4] = 0x00;
+            socket_buf[5] = 0x03;   // error response length = 3 bytes
+            socket_buf[6] = this->last_unit_id_; 
+            socket_buf[7] = this->last_function_code_ & 0x80; // set error flag
+            socket_buf[8] = 0x0B; // exception code 11: Gateway Target Device Failed to Respond
+            socket_read_len = 9;
 
+            client.socket->write(socket_buf, socket_read_len);
+        }
         // Clear the current client and reset the timer
         last_uart_usage_ = esphome::millis(); // Reset the timeout timer            
         client.uart_user_ = false;
@@ -181,7 +195,7 @@ void StreamServerComponent::exchange()
     // If we get here, then no client is waiting for an UART response,
     // so we can read from the socket to send new data to UART
     // to prevent bursts, we wait awhile between the last UART comm and the next socket read
-    if (esphome::millis() - last_uart_usage_ < MODBUS_RECEIVE_DELAY) 
+    if (esphome::millis() - last_uart_usage_ < this->timeout_) 
         return; 
 
     for (Client &client : this->clients_) 
@@ -251,7 +265,6 @@ bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len)
         return false;
     }
     this->last_transaction_id_ = (frame[0] << 8) | frame[1];
-    this->last_protocol_id_ = (frame[2] << 8) | frame[3];
     ssize_t frame_len = (frame[4] << 8) | frame[5];
     if (len < frame_len + 6) {  // we allow for longer frames, but not shorter
         len = 0;
@@ -344,8 +357,8 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
     uint16_t length = frame_len -2; // the RTU frame without CRC
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
-    frame[2] = (protocol_id >> 8) & 0xFF;
-    frame[3] = protocol_id & 0xFF;
+    frame[2] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
+    frame[3] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
     frame[4] = (length >> 8) & 0xFF;
     frame[5] = length & 0xFF;
     memcpy(frame + 6, this->uart_buf_.data(), length); 

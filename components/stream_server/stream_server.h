@@ -22,6 +22,7 @@ public:
     void set_uart_parent(esphome::uart::UARTComponent *parent) { this->uart_ = parent; }
     void set_buffer_size(size_t size) { this->buf_size_ = size; }
     void set_port(uint16_t port) { this->port_ = port; }
+    void set_timeout(uint16_t timeout) { this->timeout_ = timeout; }
 
 #ifdef USE_BINARY_SENSOR
     void set_connected_sensor(esphome::binary_sensor::BinarySensor *connected) { this->connected_sensor_ = connected; }
@@ -71,7 +72,7 @@ protected:
 
     // ModBus TCP management (MBAP header)
     uint16_t last_transaction_id_{0};
-    uint16_t last_protocol_id_{0};
+    uint16_t timeout_{3000};
 
     // ModBus RTU management (PDU header)
     uint8_t last_unit_id_{0};
