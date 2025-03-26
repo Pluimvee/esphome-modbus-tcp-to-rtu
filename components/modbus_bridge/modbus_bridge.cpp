@@ -157,13 +157,18 @@ void ModBusBridgeComponent::exchange()
         if (time_delta < MODBUS_RECEIVE_DELAY) 
             return; // skip the rest of the loop, and skip sending any data
 
+        // we are waiting for the response to come in
+        if (this->uart_buf_.size() < 4 && time_delta < this->timeout_) 
+            return; 
+
         // validate the data in the UART
         int validation = this->validate_rtu_frame();
         
-        // wait for enough data -> within the timeout period
-        if (validation < 0) {
-            if (validation < -4 && time_delta < this->timeout_) 
-                return; // we are still waiting for data 
+        // Below 0 we have a shortage of data
+        if (validation < 0) 
+        {
+            if (time_delta < (this->timeout_/10)) // wait for 10% of the timeout period for the last bytes to come in
+                return; 
 
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
             validation = 0x0A;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
@@ -194,19 +199,12 @@ void ModBusBridgeComponent::exchange()
                 client.socket->close();
             }
         }
-        // Clear the current client and reset the timer
-        last_uart_usage_ = esphome::millis(); // Reset the timeout timer            
+        // Clear the current client as we are done with the uart response
         client.uart_user_ = false;
-        this->uart_->flush();       // empty UART as we will write new data
-        this->uart_buf_.clear();    // clear the buffer
-
-        return; // we now wait for the next socket read
     }
 
     // If we get here, then no client is waiting for an UART response,
     // so we can read from the socket to send new data to UART
-    // to prevent bursts, we wait awhile between the last UART comm and the next socket read
-
     for (Client &client : this->clients_) 
     {
         if (client.disconnected)
