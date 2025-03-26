@@ -162,11 +162,11 @@ void ModBusBridgeComponent::exchange()
         
         // wait for enough data -> within the timeout period
         if (validation < 0) {
-            if (time_delta < this->timeout_) 
+            if (validation < -4 && time_delta < this->timeout_) 
                 return; // we are still waiting for data 
 
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-            validation = 0x06;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
+            validation = 0x0A;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
         }
         if (validation > 0)
         {
