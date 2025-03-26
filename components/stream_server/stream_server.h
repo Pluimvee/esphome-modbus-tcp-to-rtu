@@ -46,6 +46,9 @@ protected:
     void exchange();    // exchange data between clients and uart
     void cleanup();     // cleanup disconnected clients 
 
+    int validate_rtu_frame();   // validates UART contents for valid RTU response
+
+    // some helpers
     bool modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len);
     bool modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len);
     uint16_t calculate_crc(const uint8_t *data, size_t len);

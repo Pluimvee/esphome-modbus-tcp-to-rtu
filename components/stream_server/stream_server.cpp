@@ -82,7 +82,7 @@ void StreamServerComponent::accept()
     socket->setblocking(false);
     std::string identifier = socket->getpeername();
     this->clients_.emplace_back(std::move(socket), identifier);
-    ESP_LOGD(TAG, "New client connected from %s", identifier.c_str());
+    ESP_LOGI(TAG, "New client connected from %s", identifier.c_str());
     this->publish_sensor();
 }
 
@@ -155,36 +155,40 @@ void StreamServerComponent::exchange()
         if (time_delta < MODBUS_RECEIVE_DELAY) 
             return; // skip the rest of the loop, and skip sending any data
 
-        // wait for at least 4 bytes data (within the timeout period)
-        if (this->uart_buf_.size() < 4 && time_delta < this->timeout_) 
-            return; // we are still waiting for data 
-
+        // validate the data in the UART
+        int validation = this->validate_rtu_frame();
+        
+        // wait for enough data -> within the timeout period
+        if (validation < 0) {
+            if (time_delta < this->timeout_) 
+                return; // we are still waiting for data 
+            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
+            validation = 0x06;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
+        }
+        if (validation > 0)
+        {
+            ESP_LOGW(TAG, "Send Exception code %d to TCP", validation);
+            socket_buf[0] = this->last_unit_id_; 
+            socket_buf[1] = this->last_function_code_ & 0x80; // set error flag
+            socket_buf[2] = validation;  // exception code
+            socket_buf[3] = 0x00;   // no CRC data
+            socket_buf[4] = 0x00;   // no CRC data
+            socket_read_len = 5;
+        } else {
+            // copy the data from the UART to the socket buffer
+            socket_read_len = this->uart_buf_.size();
+            memcpy(socket_buf, this->uart_buf_.data(), socket_read_len);
+        }
         // validate and convert the UART data to Modbus TCP
         if (this->modbus_rtu_to_tcp(socket_buf, socket_read_len))
         {
             LOG_BYTES(TAG, "Send >>>", socket_buf, socket_read_len);
             int written = client.socket->write(socket_buf, socket_read_len);
             if (written != socket_read_len) {
-                ESP_LOGW(TAG, "Failed to send all data to client %s, closing connection", client.identifier.c_str());
+                ESP_LOGE(TAG, "Failed to send all data to client %s, closing connection", client.identifier.c_str());
                 client.disconnected = true;
-                client.socket->close();
+                client.socket->shutdown(SHUT_RDWR);
             }
-        }
-        if (time_delta > this->timeout_) {
-            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-            uint16_t transaction_id = this->last_transaction_id_;
-            socket_buf[0] = (transaction_id >> 8) & 0xFF;
-            socket_buf[1] = transaction_id & 0xFF;
-            socket_buf[2] = 0x00;   // protocol_id = always 0x0000 for TCP Modbus
-            socket_buf[3] = 0x00;   // protocol_id = always 0x0000 for TCP Modbus
-            socket_buf[4] = 0x00;
-            socket_buf[5] = 0x03;   // error response length = 3 bytes
-            socket_buf[6] = this->last_unit_id_; 
-            socket_buf[7] = this->last_function_code_ & 0x80; // set error flag
-            socket_buf[8] = 0x0B; // exception code 11: Gateway Target Device Failed to Respond
-            socket_read_len = 9;
-
-            client.socket->write(socket_buf, socket_read_len);
         }
         // Clear the current client and reset the timer
         last_uart_usage_ = esphome::millis(); // Reset the timeout timer            
@@ -212,9 +216,9 @@ void StreamServerComponent::exchange()
             LOG_BYTES(TAG, "Received <<<", socket_buf, socket_read_len);
             // Step 2: Send the data to the UART
             this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
+            this->uart_->write_array(socket_buf, socket_read_len);
             this->uart_->flush();       // empty UART as we will write new data
             this->uart_buf_.clear();    // clear the buffer
-            this->uart_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response
             last_uart_usage_ = esphome::millis(); // Start the timeout timer
@@ -225,7 +229,7 @@ void StreamServerComponent::exchange()
         if (socket_read_len == 0 || errno == ECONNRESET) 
         {
             // Handle socket disconnection
-            ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
+            ESP_LOGI(TAG, "Client %s disconnected", client.identifier.c_str());
             client.disconnected = true;
             client.socket->close();
             continue;
@@ -253,60 +257,25 @@ StreamServerComponent::Client::Client(std::unique_ptr<esphome::socket::Socket> s
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/* Modbus TCP to RTU conversion logic
-   Strip the MBAP header (first 7 bytes) and add CRC
-Field	        Size    Description
-Transaction ID	2	    Used to match the response to the request.
-Protocol ID	    2	    Always 0x0000 for Modbus.
-Length	        2	    Number of bytes in the remaining message (Unit ID + PDU).
-*/
+// RTU Frame validation, returns:
+// <0 when frame to short, which can be used to wait some more time. the value indicates how many bytes are missing
+// 0 when frame is valid
+// >0 when frame is invalid, in which case the suggested exception code is returned (https://www.simplymodbus.ca/exceptions.htm)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+int StreamServerComponent::validate_rtu_frame() 
 {
-    if (len < 8) {
-        len = 0;
-        ESP_LOGE(TAG, "Frame too short for Modbus TCP conversion");
-        return false;
-    }
-    this->last_transaction_id_ = (frame[0] << 8) | frame[1];
-    ssize_t frame_len = (frame[4] << 8) | frame[5];
-    if (len < frame_len + 6) {  // we allow for longer frames, but not shorter
-        len = 0;
-        ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
-        return false;
-    }
-    len = frame_len; // remove unit_id
-    memmove(frame, frame +6, len); // Shift TCP frame to remove MBAP header
-
-    uint16_t crc = calculate_crc(frame, len);
-    frame[len++] = crc & 0xFF;
-    frame[len++] = (crc >> 8) & 0xFF;
-
-    last_unit_id_ = frame[0];           // store for response validation
-    last_function_code_ = frame[1];     // store for response validation
-
-    return true;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
-{
-    len = 0;
-    // validate minimal length
-    if (this->uart_buf_.size() < 4) 
-        return false;
+    if (uart_buf_.size() < 4) // validate minimal length
+        return -4;  
 
     // validate unit_id
-    if (this->uart_buf_[0] != last_unit_id_) {
-        ESP_LOGE(TAG, "Unit ID mismatch: %02X != %02X", this->uart_buf_[0], last_unit_id_);
-        return false;
+    if (uart_buf_[0] != last_unit_id_) {
+        ESP_LOGE(TAG, "Unit ID mismatch: %02X != %02X", uart_buf_[0], last_unit_id_);
+        return 0x04;    // Slave device failure
     }
     // validate funciton_code: ignore error response as these are valid to communicate over TCP
-    if ((this->uart_buf_[1] & 0x7F) != last_function_code_) {    
+    if ((uart_buf_[1] & 0x7F) != last_function_code_) {    
         ESP_LOGE(TAG, "Function code mismatch: %02X != %02X", this->uart_buf_[1], last_function_code_);
-        return false;
+        return 0x04;    // Slave device failure
     }
     int frame_len = this->uart_buf_.size(); // unknown data length, set to what we have
     switch (this->uart_buf_[1]) 
@@ -345,31 +314,80 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
             frame_len = 1 + 2 + 2; // 1 bytes data + 2 bytes PDU header + 2 bytes CRC
         break;
     }
-    if (this->uart_buf_.size() != frame_len) {
-        ESP_LOGE(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
-        return false;
+    if (uart_buf_.size() < frame_len) {
+        ESP_LOGW(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
+        return frame_len - uart_buf_.size();    // return how many bytes are missing
     }
     uint16_t crc = calculate_crc(this->uart_buf_.data(), frame_len - 2);
     uint16_t crc2 = this->uart_buf_[frame_len - 1] << 8 | this->uart_buf_[frame_len - 2];
     if (crc != crc2) {
         ESP_LOGE(TAG, "CRC mismatch: %04X != %04X", crc, crc2);
-        return false;
+        return 0x05;    // Acknowledge
     }
-    // all seems to be valid, now add MBAP header
+    return 0;   // frame is valid
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Modbus RTU to TCP conversion logic -> Add MBAP header and strip CRC
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len) 
+{
+    if (len < 4) 
+        return false;  
+    len = 0;
     uint16_t transaction_id = this->last_transaction_id_;
-    uint16_t length = frame_len -2; // the RTU frame without CRC
+    uint16_t length = len-2; // the RTU frame without CRC
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
     frame[2] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
     frame[3] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
     frame[4] = (length >> 8) & 0xFF;
     frame[5] = length & 0xFF;
-    memcpy(frame + 6, this->uart_buf_.data(), length); 
+    memmove(frame +6, frame, length); 
     len = 6 + length; // 6 bytes MBAP header + data length
 
     return true;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* Modbus TCP to RTU conversion logic
+   Strip the MBAP header (first 7 bytes) and add CRC
+Field	        Size    Description
+Transaction ID	2	    Used to match the response to the request.
+Protocol ID	    2	    Always 0x0000 for Modbus.
+Length	        2	    Number of bytes in the remaining message (Unit ID + PDU).
+*/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool StreamServerComponent::modbus_tcp_to_rtu(uint8_t *frame, ssize_t &len) 
+{
+    if (len < 8) {
+        len = 0;
+        ESP_LOGE(TAG, "TCP Frame too short for conversion to RTU");
+        return false;
+    }
+    this->last_transaction_id_ = (frame[0] << 8) | frame[1];
+    ssize_t frame_len = (frame[4] << 8) | frame[5];
+    if (len < frame_len + 6) {  // we allow for longer frames, but not shorter
+        len = 0;
+        ESP_LOGE(TAG, "Invalid Modbus TCP frame length");
+        return false;
+    }
+    len = frame_len; // remove unit_id
+    memmove(frame, frame +6, len); // Shift TCP frame to remove MBAP header
+
+    uint16_t crc = calculate_crc(frame, len);
+    frame[len++] = crc & 0xFF;
+    frame[len++] = (crc >> 8) & 0xFF;
+
+    last_unit_id_ = frame[0];           // store for response validation
+    last_function_code_ = frame[1];     // store for response validation
+
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 uint16_t StreamServerComponent::calculate_crc(const uint8_t *data, size_t len) {
     // Implement CRC calculation for Modbus RTU
     uint16_t crc = 0xFFFF;
