@@ -24,7 +24,7 @@ void ModBusBridgeComponent::setup() {
     this->listener_ = socket::socket_ip(SOCK_STREAM, AF_INET);
     this->listener_->setblocking(false);
     this->listener_->bind(reinterpret_cast<struct sockaddr *>(&bind_addr), bind_addrlen);
-    this->listener_->listen(8);
+    this->listener_->listen(4);
 
     this->publish_sensor();
 }
@@ -74,6 +74,8 @@ void ModBusBridgeComponent::publish_sensor() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void ModBusBridgeComponent::accept() 
 {
+    if (this->clients_.size() >= 4) // limit the number of clients to 4
+        return;
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
     std::unique_ptr<socket::Socket> socket = this->listener_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
@@ -125,6 +127,7 @@ void ModBusBridgeComponent::read()
         return;
 
     uint8_t b;
+    // TODO: keep track of configured buffersize uart.buf_.size() < this->buf_size_
     while (this->uart_->available() >0 && this->uart_->read_byte(&b)) 
         uart_buf_.push_back(b);
     last_uart_usage_ = esphome::millis(); // register data comming in
@@ -133,7 +136,7 @@ void ModBusBridgeComponent::read()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Exchange messages from socket to UART and back
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define MODBUS_RECEIVE_DELAY   500
+#define MODBUS_RECEIVE_DELAY   100
 
 void ModBusBridgeComponent::exchange() 
 {
@@ -169,6 +172,7 @@ void ModBusBridgeComponent::exchange()
         }
         if (validation > 0)
         {
+            LOG_BYTES(TAG, "RTU Frame >>>", this->uart_buf_.data(), this->uart_buf_.size());
             ESP_LOGW(TAG, "Send Exception code %d to TCP", validation);
             socket_buf[0] = this->last_unit_id_; 
             socket_buf[1] = this->last_function_code_ | 0x80; // set error flag
