@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart
-from esphome.const import CONF_ID, CONF_PORT, CONF_BUFFER_SIZE
+from esphome.const import CONF_ID, CONF_PORT, CONF_BUFFER_SIZE, CONF_TIMEOUT
 
 # ESPHome doesn't know the Stream abstraction yet, so hardcode to use a UART for now.
 
@@ -27,6 +27,9 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(StreamServerComponent),
             cv.Optional(CONF_PORT, default=502): cv.port,
+            cv.Optional(
+                CONF_TIMEOUT, default=2000
+            ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_BUFFER_SIZE, default=256): cv.All(
                 cv.positive_int, validate_buffer_size
             ),
@@ -41,6 +44,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_buffer_size(config[CONF_BUFFER_SIZE]))
+    cg.add(var.set_timeout(config[CONF_TIMEOUT]))
 
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
