@@ -162,6 +162,7 @@ void StreamServerComponent::exchange()
         if (validation < 0) {
             if (time_delta < this->timeout_) 
                 return; // we are still waiting for data 
+
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
             validation = 0x06;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
         }
@@ -169,7 +170,7 @@ void StreamServerComponent::exchange()
         {
             ESP_LOGW(TAG, "Send Exception code %d to TCP", validation);
             socket_buf[0] = this->last_unit_id_; 
-            socket_buf[1] = this->last_function_code_ & 0x80; // set error flag
+            socket_buf[1] = this->last_function_code_ | 0x80; // set error flag
             socket_buf[2] = validation;  // exception code
             socket_buf[3] = 0x00;   // no CRC data
             socket_buf[4] = 0x00;   // no CRC data
@@ -336,13 +337,13 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
         return false;  
     uint16_t transaction_id = this->last_transaction_id_;
     uint16_t length = len-2; // the RTU frame without CRC
+    memmove(frame +6, frame, length); // FIRST MOVE THE FRAME TO MAKE SPACE FOR THE MBAP HEADER
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
     frame[2] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
     frame[3] = 0x00;    // protocol_id = always 0x0000 for TCP Modbus
     frame[4] = (length >> 8) & 0xFF;
     frame[5] = length & 0xFF;
-    memmove(frame +6, frame, length); 
     len = 6 + length; // 6 bytes MBAP header + data length
 
     return true;
