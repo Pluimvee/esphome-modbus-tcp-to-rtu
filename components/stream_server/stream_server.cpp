@@ -156,7 +156,7 @@ void StreamServerComponent::exchange()
             return; // skip the rest of the loop, and skip sending any data
 
         // wait for at least 4 bytes data (within the timeout period)
-        if (this->uart_buf_.size() < 4 && time_delta < MODBUS_MESSAGE_TIMEOUT) 
+        if (this->uart_buf_.size() < 4 && time_delta < this->timeout_) 
             return; // we are still waiting for data 
 
         // validate and convert the UART data to Modbus TCP
@@ -169,7 +169,6 @@ void StreamServerComponent::exchange()
         if (time_delta > this->timeout_) {
             ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
             uint16_t transaction_id = this->last_transaction_id_;
-            uint16_t protocol_id = this->last_protocol_id_;
             socket_buf[0] = (transaction_id >> 8) & 0xFF;
             socket_buf[1] = transaction_id & 0xFF;
             socket_buf[2] = 0x00;   // protocol_id = always 0x0000 for TCP Modbus
@@ -353,7 +352,6 @@ bool StreamServerComponent::modbus_rtu_to_tcp(uint8_t *frame, ssize_t &len)
     }
     // all seems to be valid, now add MBAP header
     uint16_t transaction_id = this->last_transaction_id_;
-    uint16_t protocol_id = this->last_protocol_id_;
     uint16_t length = frame_len -2; // the RTU frame without CRC
     frame[0] = (transaction_id >> 8) & 0xFF;
     frame[1] = transaction_id & 0xFF;
