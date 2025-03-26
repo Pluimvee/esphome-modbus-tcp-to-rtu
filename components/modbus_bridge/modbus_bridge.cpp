@@ -155,23 +155,25 @@ void ModBusBridgeComponent::exchange()
 
         // If we just send, or (still) receive data, wait for the UART to finish
         if (time_delta < MODBUS_RECEIVE_DELAY) 
-            return; // skip the rest of the loop, and skip sending any data
-
-        // we are waiting for the response to come in
-        if (this->uart_buf_.size() < 4 && time_delta < this->timeout_) 
             return; 
 
-        // validate the data in the UART
+        // Validate the RTU frame in the UART
         int validation = this->validate_rtu_frame();
         
         // Below 0 we have a shortage of data
         if (validation < 0) 
         {
-            if (time_delta < (this->timeout_/10)) // wait for 10% of the timeout period for the last bytes to come in
-                return; 
-
-            ESP_LOGW(TAG, "UART response timeout for client %s", client.identifier.c_str());
-            validation = 0x0A;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
+            if (time_delta > this->timeout_) {
+                ESP_LOGW(TAG, "RTU response timeout for client %s", client.identifier.c_str());
+                validation = 0x0B;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
+            } else {
+                // if we have nothing yet, we wait the full timeout for something to come in
+                if (this->uart_buf_.size() == 0 || time_delta < (this->timeout_/10))  
+                    return; 
+                
+                ESP_LOGW(TAG, "Incomplete RTU, short of %d bytes", validation *-1);
+                validation = 0x06;   // exception code 6: Device is busy 0x0B is a better fit but triggers a new TCP connection 
+            }
         }
         if (validation > 0)
         {
