@@ -316,7 +316,7 @@ int StreamServerComponent::validate_rtu_frame()
         break;
     }
     if (uart_buf_.size() < frame_len) {
-        ESP_LOGW(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len);
+//        ESP_LOGW(TAG, "Frame length %d mismatch with expected %d", this->uart_buf_.size(), frame_len); // no logging as this will trigger a lot of messages
         return uart_buf_.size() - frame_len;    // return how many bytes are missing (negative value)
     }
     uint16_t crc = calculate_crc(this->uart_buf_.data(), frame_len - 2);
