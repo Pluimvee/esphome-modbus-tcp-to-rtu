@@ -75,7 +75,7 @@ modbus_bridge:
 
 The stream server has an internal buffer into which UART data is read before it is transmitted over TCP. The size of
 this buffer can be changed using the `buffer_size` option, and must be a power of two. Increasing the buffer size above
-the default of 128 bytes can help to achieve optimal throughput, and is especially helpful when using high baudrates. It
+the default of 256 bytes can help to achieve optimal throughput, and is especially helpful when using high baudrates. It
 can also be necessary to increase the [`rx_buffer_size`][uart-config] option of the UART itself.
 
 [uart-config]: https://esphome.io/components/uart.html#configuration-variables
