@@ -88,3 +88,6 @@ Hardware used
 
 <img width="485" height="391" alt="image" src="https://github.com/user-attachments/assets/a29901b8-1a84-4165-9809-11f85063ef39" />
 
+Connection schema to the Solis inverter
+<img width="1175" height="643" alt="image" src="https://github.com/user-attachments/assets/9dcfc6d1-e614-4574-814e-418fe4e6eaef" />
+
