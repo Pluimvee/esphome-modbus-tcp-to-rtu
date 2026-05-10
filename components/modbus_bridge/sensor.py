@@ -21,9 +21,7 @@ CONFIG_SCHEMA = cv.Schema(
     }
 )
 
-
 async def to_code(config):
     server = await cg.get_variable(config[CONF_STREAM_SERVER])
-
     sens = await sensor.new_sensor(config[CONF_CONNECTION_COUNT])
     cg.add(server.set_connection_count_sensor(sens))

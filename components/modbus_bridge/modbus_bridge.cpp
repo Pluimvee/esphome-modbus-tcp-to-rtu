@@ -1,3 +1,7 @@
+/**
+  @AUTHOR (c) 2025 Pluimvee (Erik Veer)
+
+ */
 #include "modbus_bridge.h"
 
 #include "esphome/core/helpers.h"
@@ -21,7 +25,7 @@ void ModBusBridgeComponent::setup() {
     struct sockaddr_storage bind_addr;
     socklen_t bind_addrlen = socket::set_sockaddr_any(reinterpret_cast<struct sockaddr *>(&bind_addr), sizeof(bind_addr), this->port_);
 
-    this->listener_ = socket::socket_ip(SOCK_STREAM, AF_INET);
+    this->listener_ = socket::socket_listen(AF_INET, SOCK_STREAM, 0);
     this->listener_->setblocking(false);
     this->listener_->bind(reinterpret_cast<struct sockaddr *>(&bind_addr), bind_addrlen);
     this->listener_->listen(8);
@@ -39,8 +43,8 @@ void ModBusBridgeComponent::loop() {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void ModBusBridgeComponent::dump_config() {
-    ESP_LOGCONFIG(TAG, "ModBus Bridge:");
-    ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
+    ESP_LOGCONFIG(TAG, "ModBus Bridge (C)Pluimvee:");
+    ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address(), this->port_);
     ESP_LOGCONFIG(TAG, "  ModBus timeout: %d ms", this->timeout_);
     ESP_LOGCONFIG(TAG, "  UART buffer: %d bytes", this->buf_size_);
 #ifdef USE_BINARY_SENSOR
@@ -81,7 +85,8 @@ void ModBusBridgeComponent::accept()
         return;
 
     socket->setblocking(false);
-    std::string identifier = socket->getpeername();
+    auto *addr_in = reinterpret_cast<struct sockaddr_in *>(&client_addr);
+    std::string identifier = str_sprintf("%s:%u", inet_ntoa(addr_in->sin_addr), ntohs(addr_in->sin_port));
     this->clients_.emplace_back(std::move(socket), identifier);
     ESP_LOGI(TAG, "New client connected from %s", identifier.c_str());
     this->publish_sensor();
@@ -221,11 +226,19 @@ void ModBusBridgeComponent::exchange()
             this->modbus_tcp_to_rtu(socket_buf, socket_read_len);
             this->uart_->flush();       // empty UART as we will write new data
             this->uart_buf_.clear();    // clear the buffer
+            
+            // TODO: add support for control_flow_pin
+            // something like: this->de_pin_->digital_write(true);
+            
             this->uart_->write_array(socket_buf, socket_read_len);
 
             // Mark the client as waiting for a UART response
             last_uart_usage_ = esphome::millis(); // Start the timeout timer
             client.uart_user_ = true;
+            
+            // TODO: add support for control_flow_pin
+            // this->uart_->flush(); // wait for all bytes to be written
+            // this->de_pin_->digital_write(false);
             
             return; // we now wait for the UART response
         } 

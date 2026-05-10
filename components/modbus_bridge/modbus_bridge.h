@@ -1,3 +1,7 @@
+/**
+  @AUTHOR (c) 2025 Pluimvee (Erik Veer)
+
+ */
 #pragma once
 
 #include "esphome/core/component.h"
@@ -64,7 +68,7 @@ protected:
 
     // Component management
     uint16_t port_{502};
-    std::unique_ptr<esphome::socket::Socket> listener_{};   // hte accepting socket
+    std::unique_ptr<esphome::socket::ListenSocket> listener_{};   // hte accepting socket
     std::vector<Client> clients_{};                         // list of connected clients
 
     // UART management

@@ -20,9 +20,7 @@ CONFIG_SCHEMA = cv.Schema(
     }
 )
 
-
 async def to_code(config):
     server = await cg.get_variable(config[CONF_STREAM_SERVER])
-
     sens = await binary_sensor.new_binary_sensor(config[CONF_CONNECTED])
     cg.add(server.set_connected_sensor(sens))
