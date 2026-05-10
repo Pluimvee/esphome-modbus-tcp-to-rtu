@@ -86,4 +86,5 @@ Hardware used
 - MAX485 Module (1.30)
 - AC 220v to DC 5v (2.20 EUR)
 
+<img width="485" height="391" alt="image" src="https://github.com/user-attachments/assets/a29901b8-1a84-4165-9809-11f85063ef39" />
 
